@@ -47,7 +47,7 @@ DEGREES = [
     (4, re.compile(r"\b(?:ph\.?\s*d\b|doctor(?:al|ate| of philosophy)\b)", re.I)),
     (3, re.compile(r"\b(?:master(?:s|'s|’s)?|mba|mca|m\.?\s*(?:sc|s|tech|eng|e)\.?)\b", re.I)),
     (2, re.compile(r"\b(?:bachelor(?:s|'s|’s)?|b\.?\s*(?:sc|s|a|tech|eng|e|com|ca)\.?)\b", re.I)),
-    (1, re.compile(r"\bassociate(?:s|'s|’s)?\b", re.I)),
+    (1, re.compile(r"\bassociate(?:s|'s|’s)?(?=\s+(?:of|degree)\b)", re.I)),
 ]
 MAJOR = re.compile(r"\b(?:computer|computing|informatics|information (?:science|systems|technology)|"
                    r"[\w-]+ engineering|mathematics|statistics|biology|physics|chemistry|finance|"
@@ -100,25 +100,23 @@ def snippet(rec, start, end):
 
 GRAPH_COUNTS = """
 MATCH (c:ResumeKG:Candidate {kg_owner:$owner})
-CALL {
-    WITH c
+CALL (c) {
     MATCH p=(c)-[:HAS_SKILL]->(s:Skill)
     WHERE all(r IN relationships(p) WHERE r.kg_owner=$owner AND r.evidence_valid)
     RETURN collect(DISTINCT s) AS listed
 }
-CALL {
-    WITH c
+CALL (c) {
     MATCH p=(c)-[:HAS_EXPERIENCE|WORKED_ON]->()-[:USED_SKILL|APPLIED_SKILL]->(s:Skill)
     WHERE all(r IN relationships(p) WHERE r.kg_owner=$owner AND r.evidence_valid)
     RETURN collect(DISTINCT s) AS verified
 }
-CALL {
-    WITH c MATCH p=(c)-[:HAS_EXPERIENCE]->()-[:AT_COMPANY]->(b:Company)
+CALL (c) {
+    MATCH p=(c)-[:HAS_EXPERIENCE]->()-[:AT_COMPANY]->(b:Company)
     WHERE all(r IN relationships(p) WHERE r.kg_owner=$owner AND r.evidence_valid)
     RETURN count(DISTINCT b) AS distinct_companies
 }
-CALL {
-    WITH c MATCH (c)-[r:WORKED_ON]->(p:Project)
+CALL (c) {
+    MATCH (c)-[r:WORKED_ON]->(p:Project)
     WHERE r.kg_owner=$owner AND r.evidence_valid
     RETURN count(DISTINCT p) AS project_count
 }
@@ -159,6 +157,77 @@ def raw_rows(driver):
             values = rec.data()
             candidates[values.pop("id")]["graph_counts"] = values
     return [(candidates[k], grouped[k]) for k in sorted(candidates)]
+
+
+# Completion is assessed per credential, not from a status word anywhere on a page.
+PENDING_PREFIX = re.compile(
+    r"(?:candidate for|pursuing|working (?:toward[s]?|on)|studying (?:toward[s]?|for)|"
+    r"enrolled in|in pursuit of|coursework toward[s]?)\s+(?:(?:a|an|the|my|his|her)\s+)?$", re.I)
+PENDING_FOLLOW = re.compile(
+    r"\b(?:expected|anticipated)\s+(?:graduation|completion|in\s+\d{4}|\d|"
+    r"jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|spring|fall|summer|winter)|"
+    r"\b(?:in progress|not yet completed|did not complete|currently enrolled|"
+    r"currently (?:a |an )?(?:(?:full|part)[- ]time )?student)\b|"
+    r"^[.,:\s]*(?:degree\s+)?candidate\b|"
+    r"(?:[-–—,]|\bto)\s*\b(?:present|current)\b(?!\s+(?:member|gpa|affiliations))|"
+    r"\b(?:present|current)\s+(?:university|college)\b|"
+    r"(?m:^\s*(?:present|current)\s*$)", re.I)
+UNRELATED_SECTION = re.compile(
+    r"\b(?:(?:(?:present|current)\s+)?affiliations|presentations|work experience|certifications|professional memberships|awards)\b", re.I)
+ACADEMIC_STOP = set("the for and with science bachelor bachelors master masters associate arts degree university college school state city applied".split())
+
+
+def education_status(records):
+    """Locate pending qualifiers; reconcile adjacent duplicate headers for the same credential."""
+    mentions = {}
+    for key, (kind, rec, _) in records.items():
+        if kind != "HAS_EDUCATION":
+            continue
+        text = rec["record_text"]
+        spans = sorted(((level, m) for level, rx in DEGREES for m in rx.finditer(text)),
+                       key=lambda x:x[1].start())
+        entries = []
+        for i, (level, match) in enumerate(spans):
+            start, end = match.span()
+            before = max(spans[i-1][1].end() if i else 0, start-80)
+            after = min(spans[i+1][1].start() if i+1 < len(spans) else len(text), end+260)
+            # Preserve offsets through whitespace-heavy PDF table cells.
+            following = UNRELATED_SECTION.split(text[end:after], maxsplit=1)[0]
+            pre = PENDING_PREFIX.search(text[before:start])
+            post = PENDING_FOLLOW.search(following)
+            reason = None
+            if pre:
+                reason = snippet(rec, before+pre.start(), end)
+            elif post:
+                reason = snippet(rec, end+post.start(), end+post.end())
+            entries.append(dict(level=level, match=match, pending=reason))
+        mentions[key] = entries
+
+    # PDF layouts sometimes repeat the same credential as an unqualified short
+    # header, immediately followed by the full line that specifies its status.
+    # Only propagate across neighbouring fragments with matching field terms.
+    ordered = sorted((rec for kind,rec,_ in records.values() if kind=="HAS_EDUCATION"),
+                     key=lambda r:(r["page_num"], r.get("page_start",0)))
+    for a,b in zip(ordered, ordered[1:]):
+        if a["page_num"] != b["page_num"]:
+            continue
+        gap = b.get("page_start",0) - a.get("page_start",0) - len(a["record_text"])
+        if not -1 <= gap <= 20:
+            continue
+        for brief,detail in ((a,b),(b,a)):
+            header = brief["record_text"]
+            if len(header)>250 or YEAR.search(header) or re.search(r"\b(?:graduated|awarded|conferred)\b",header,re.I):
+                continue
+            def keywords(text):
+                return set(re.findall(r"[a-z]{3,}", text.lower())) - ACADEMIC_STOP
+            if len(keywords(header) & keywords(detail["record_text"][:250])) < 2:
+                continue
+            for ent in mentions[brief["id"]]:
+                same = next((x for x in mentions[detail["id"]]
+                             if x["level"]==ent["level"] and x["pending"]),None)
+                if same:
+                    ent["pending"] = same["pending"]
+    return mentions
 
 
 def compute_features(candidate, rows):
@@ -203,20 +272,33 @@ def compute_features(candidate, rows):
                     skill_category_coverage=len({n.get("category") for n in all_skills.values()} & CATEGORIES),
                     applied_skill_diversity=len({n.get("category") for n in verified.values()} & CATEGORIES))
     education, companies, tenures, seniorities, impacts = {}, set(), [], [], set()
+    credentials = education_status(records)
+    pending_degrees = []
     for key, (rel, rec, link) in records.items():
         text = rec.get("record_text", "")
         if rel == "HAS_EDUCATION":
-            matched = next(((lvl, pat.search(text)) for lvl, pat in DEGREES if pat.search(text)), None)
-            institution = edges[(key, "AT_UNIVERSITY")]
-            major = MAJOR.search(text)
-            if matched:
-                level, match = matched
-                proof = snippet(rec, *match.span())
+            entries = credentials[key]
+            # Education records, including ongoing studies, still describe an
+            # educational experience. Only completed-level scoring excludes them.
+            matched = max(((entry["level"], entry["match"]) for entry in entries),
+                          key=lambda item:item[0], default=None)
+            for entry in entries:
+                proof = snippet(rec, *entry["match"].span())
+                level = entry["level"]
+                if entry["pending"]:
+                    pending_degrees.append(dict(level=level, degree_evidence=proof,
+                                                status_evidence=entry["pending"]))
+                    continue
                 if level > features["max_degree_level"]:
                     features["max_degree_level"] = level
                     evidence["max_degree_level"] = []
                 if level == features["max_degree_level"]:
                     add("max_degree_level", proof)
+            institution = edges[(key, "AT_UNIVERSITY")]
+            major = MAJOR.search(text)
+            if matched:
+                level, match = matched
+                proof = snippet(rec, *match.span())
                 if institution or rec.get("degree"):
                     # Split fragments describing the same credential count once.
                     school = institution[0]["node"]["id"] if institution else ""
@@ -291,7 +373,7 @@ def compute_features(candidate, rows):
         features[key] = value
     return dict(resume_id=rid, split=candidate["split"], text_hash=candidate.get("text_hash", ""),
                 graph_snapshot=candidate.get("kg_snapshot"),
-                features=features, evidence=dict(evidence))
+                features=features, evidence=dict(evidence), pending_degrees=pending_degrees)
 
 
 def quantile(values, fraction):

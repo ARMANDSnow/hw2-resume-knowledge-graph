@@ -8,7 +8,7 @@ import zipfile
 from collections import Counter
 from pathlib import Path
 
-import fitz
+import pymupdf as fitz
 import requests
 
 from .config import EXTRACTED, MANIFEST, PROCESSED, RAW, ROOT, SAMPLE_PDFS, read_json, write_json

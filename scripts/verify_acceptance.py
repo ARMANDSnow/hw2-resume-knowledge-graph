@@ -214,6 +214,12 @@ class Audit:
         model = read_json(PROCESSED/"rules_model.json")
         snapshot = read_json(PROCESSED/"sync_check_report.json")
         fresh = [compute_features(*row) for row in raw_rows(self.driver)]
+        persisted = read_json(PROCESSED/"candidate_features.json")["candidates"]
+        require(persisted == fresh, "逐候选人特征和原句明细无法从实时图谱重建")
+        for person in fresh:
+            for item in person.get("pending_degrees",[]):
+                require(self.quote_ok(item["degree_evidence"]) and self.quote_ok(item["status_evidence"]),
+                        "待授学位缺少学位或状态引文 "+person["resume_id"])
         train = [r for r in fresh if r["split"]=="train"]
         rebuilt = fit(train)
         dimensions = ("EDU","EXP","SKL","POT")

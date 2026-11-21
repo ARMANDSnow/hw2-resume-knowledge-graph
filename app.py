@@ -92,14 +92,14 @@ def extraction(doc):
         with st.expander("模型识别出的实体", expanded=True):
             entities = record.get("entities", [])
             if entities:
-                st.dataframe(entities, hide_index=True, use_container_width=True)
+                st.dataframe(entities, hide_index=True)
             else:
                 st.caption("本条记录没有通过模型置信度门槛的实体。")
     with st.expander("全部关系与页码", expanded=True):
         st.dataframe([{"关系": e["type"], "起点": e["source"], "终点": e["target"],
                        **{k: e["properties"].get(k) for k in
                           ("record_id", "page_num", "evidence_quote", "evidence_valid")}} for e in edges],
-                     hide_index=True, use_container_width=True)
+                     hide_index=True)
 
 def graph_tab(stats):
     st.header("图谱规模与实体归并")
@@ -160,8 +160,8 @@ def rules_tab():
         st.subheader("固定测试候选人的两次评估")
         st.dataframe([{"训练快照": k[-1].upper(), "训练人数": sync[k]["train_size"],
                        "快照哈希": sync[k]["cohort_hash"]} for k in ("snapshot_a", "snapshot_b")],
-                     hide_index=True, use_container_width=True)
-        st.dataframe(sync["threshold_changes"], hide_index=True, use_container_width=True)
+                     hide_index=True)
+        st.dataframe(sync["threshold_changes"], hide_index=True)
         for anchor in sync["anchors"]:
             with st.expander(f"锚点简历 {anchor['resume_id']}"):
                 rows = [{"训练快照": name.upper(), "维度": label, "得分": anchor[name]["scores"][dim],
@@ -236,11 +236,11 @@ def query_tab(driver, docs):
     st.subheader(f"近似候选 · {len(near)} 人")
     if near:
         st.dataframe([{"简历": c["resume_id"], "缺失硬条件": "；".join(c["missing_conditions"])}
-                      for c in near], hide_index=True, use_container_width=True)
+                      for c in near], hide_index=True)
     if mode == "主展示查询" and len(hits) >= 3:
         st.subheader("前三位严格命中候选人")
         top = hits[:3]
-        st.dataframe(comparison_rows(top), hide_index=True, use_container_width=True)
+        st.dataframe(comparison_rows(top), hide_index=True)
         st.write(comparison_conclusion(top))
         saved = artifact(PROCESSED / "query_reports/main.json")
         chart = PROCESSED / "query_reports/comparison.png"
