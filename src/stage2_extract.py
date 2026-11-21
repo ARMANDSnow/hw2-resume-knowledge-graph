@@ -13,12 +13,12 @@ LABELS = ["person", "company", "university", "degree", "major", "job title",
           "skill", "project", "date range", "certification"]
 SECTIONS = {
     "EXPERIENCE": r"(?:(?:professional|work|working|employment|internship|relevant)\s+)?experience(?:s)?|employment history|work history|employment",
-    "EDUCATION": r"educational qualifications?|education(?:al background)?|academic (?:background|qualifications?)",
-    "PROJECTS": r"(?:(?:personal|academic|technical|selected|major|professional)\s+)?projects",
-    "SKILLS": r"(?:(?:technical|professional|computer|key|core|programming)\s+)?skills(?: summary)?|technical proficiencies|technical expertise|core competencies",
-    "CERTIFICATIONS": r"certifications?(?: and (?:licenses|courses))?|certificates",
+    "EDUCATION": r"educational qualifications?|education(?: and (?:training|certifications?|certificates|academic achievements)|al background)?|academic (?:background|qualifications?)",
+    "PROJECTS": r"(?:(?:personal|academic|technical|selected|major|professional|final year)\s+)?projects?(?: worked on| and extracurricular activities)?",
+    "SKILLS": r"(?:(?:technical|professional|computer|key|core|programming)\s+)?skills(?: summary| and activities| and abilities)?|skill highlights|technical proficiencies|technical expertise|core competencies",
+    "CERTIFICATIONS": r"certifications?(?: and (?:licenses|courses))?|certificates|courses attended",
     "PROFILE": r"(?:professional |career )?(?:summary|profile|objective)|about me",
-    "OTHER": r"awards(?: and honors)?|languages|interests|publications|references|activities|volunteer experience",
+    "OTHER": r"key strengths|major modules(?: are)?|coursework|hobbies|personal (?:details|information)|accomplishments|declaration|academic achievements|awards(?: and honors)?|languages|interests|publications|references|activities|volunteer experience",
 }
 # Lowercase headings embedded in prose are deliberately excluded.
 _HEADING_WORDS = "|".join(f"(?P<{k}>{v})" for k, v in SECTIONS.items())
@@ -26,7 +26,7 @@ HEADING = re.compile(r"(?<![A-Za-z])(?:" + _HEADING_WORDS + r")(?![A-Za-z])", re
 MONTH = r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
 YEAR = r"(?:19[6-9]\d|20[0-3]\d)"
 DATE = rf"(?:{MONTH}\.?[\s,/’-]*{YEAR}|(?:0?[1-9]|1[012])\s*[/.-]\s*{YEAR}|{YEAR}(?:[-/]\d{{1,2}})?)"
-PERIOD = re.compile(rf"(?<!\d)(?P<start>{DATE})\s*(?:[-–—−]|\bto\b|\buntil\b)\s*(?P<end>{DATE}|present|current(?:ly)?|ongoing|now)\b", re.I)
+PERIOD = re.compile(rf"(?<!\d)(?P<start>{DATE})\s*(?:[-–—−]|\bto\b|\buntil\b)\s*(?P<end>{DATE}|present|current(?:ly)?|ongoing|now|till date|to date)\b", re.I)
 DEGREE = re.compile(r"\b(?:Ph\.?\s?D\.?|Doctor(?:ate| of [A-Z][a-z]+)|Masters?(?:['’]s)?|M\.?\s?Sc\.?|M\.?\s?S\.?|MBA|Bachelors?(?:['’]s)?|B\.?\s?Sc\.?|B\.?\s?S\.?|B\.?\s?Tech\.?|Associate(?:['’]s)?\s+(?:degree|of))(?=\s|[,.(]|$)", re.I)
 ROLE = re.compile(r"\b(?:senior |junior |lead |principal |associate |assistant |staff )?(?:[A-Za-z][\w&/-]*[ \t]+){0,3}(?:engineer|developer|intern|analyst|scientist|consultant|manager|director|architect|designer|administrator|coordinator|officer|specialist|technician|teacher|accountant|executive|associate|lead)\b", re.I)
 SCHOOL = re.compile(r"\b(?:university|college|institute|polytechnic|school)\b", re.I)
@@ -44,7 +44,7 @@ MODEL_IDS = ("urchade/gliner_medium-v2.1", "urchade/gliner_small-v2.1")
 
 
 def ym(value, end=False):
-    if re.fullmatch(r"present|current(?:ly)?|ongoing|now", value, re.I):
+    if re.fullmatch(r"present|current(?:ly)?|ongoing|now|till date|to date", value, re.I):
         return "2026-11"  # Submission snapshot date, held fixed for reproducible scoring.
     year = re.search(YEAR, value)
     if not year:
@@ -70,11 +70,26 @@ def quote_at(text, start, end):
 
 def section_spans(text, previous="PROFILE"):
     cuts = []
+    current = previous
     for match in HEADING.finditer(text):
         line_start = text.rfind("\n", 0, match.start()) + 1
         prefix = text[line_start:match.start()].strip(" \t:|•▪-")
         suffix = text[match.end():].split("\n", 1)[0]
         token = match[0].strip()
+        if token.casefold()=="accomplishments" and (prefix or current=="EXPERIENCE" and suffix.strip()):
+            continue
+        if match.lastgroup=="EXPERIENCE" and re.match(r"\s+total years",suffix,re.I):
+            continue
+        if token.casefold()=="project" and not token.isupper() and suffix.strip() and not suffix.lstrip().startswith(":"):
+            continue
+        if match.lastgroup=="PROJECTS" and re.match(r"(?i)\s*(?:management|manager|lead|architect|team|engineer|member)\b",suffix):
+            continue
+        if match.lastgroup=="PROJECTS" and token.casefold()=="project" and match.start() > 0 and current in ("PROJECTS","EXPERIENCE"):
+            continue  # Nested Project: / Project 2: titles belong to the record splitter.
+        if match.lastgroup=="OTHER" and token.casefold()=="languages" and current=="SKILLS":
+            after=text[match.end():match.end()+170]
+            if re.search(r"(?i)\b(?:Python|Java|SQL|C\+\+|JavaScript)\b",after):
+                continue
         # Embedded headings require emphatic uppercase or a colon. A plain
         # line-initial heading followed by prose is usually a noun, not a section.
         if prefix and not token.isupper() and not suffix.lstrip().startswith(":"):
@@ -87,6 +102,7 @@ def section_spans(text, previous="PROFILE"):
                 continue
         if not cuts or cuts[-1][1] != match.end():
             cuts.append((match.start(), match.end(), match.lastgroup))
+            current=match.lastgroup
     begin, section = 0, previous
     for pos, heading_end, next_section in cuts:
         if text[begin:pos].strip():
@@ -100,24 +116,32 @@ def _blocks(text, section):
     lines = list(re.finditer(r"[^\n]+", text))
     starts = []
     if section == "EXPERIENCE":
-        dates = list(PERIOD.finditer(text))
-        for i, match in enumerate(dates):
-            line_idx = next((j for j, l in enumerate(lines) if l.end() >= match.start()), 0)
-            first = line_idx
-            # Date-only lines may follow job and employer on the two preceding lines.
-            for j in range(line_idx - 1, max(-1, line_idx - 3), -1):
-                l = lines[j]
-                s = l[0].strip()
-                if not s or len(s) > 110 or s[:1] in "•●▪-*·" or s.endswith((".", ";")) or PERIOD.search(s):
-                    break
-                # A preceding accomplishment is never a title, even if short.
-                if re.match(r"(?i)(?:developed|worked|built|managed|created|led|designed|using|used|implemented|responsible|performed|conducted|improved)\b", s):
-                    break
-                if j == line_idx-1 and ROLE.search(text[lines[line_idx].start():match.start()]):
-                    break
-                first = j
-            if i:
-                starts.append(max(lines[first].start(), dates[i-1].end()))
+        if re.search(r"(?im)^\s*(?:occupation or position held|name and address of employer)\s*$",text):
+            starts.extend(m.start() for m in re.finditer(r"(?im)^[ \t]*dates[ \t]*$",text))
+        else:
+            dates=[]
+            for date in PERIOD.finditer(text):
+                line_start=text.rfind("\n",0,date.start())+1
+                prefix=text[line_start:date.start()].strip()
+                if len(prefix)>130 or re.search(r"(?i)\b(?:during|since|period of|budget|oversaw|implemented|developed|won|training)\b",prefix):
+                    continue  # Narrative date ranges do not introduce employment.
+                dates.append(date)
+            for i, match in enumerate(dates):
+                line_idx = next((j for j,l in enumerate(lines) if l.end()>=match.start()),0)
+                first=line_idx
+                line_prefix=text[lines[first].start():match.start()].strip()
+                if (not line_prefix or len(line_prefix)<4) and line_idx:
+                    for j in range(line_idx-1,max(-1,line_idx-3),-1):
+                        prev=lines[j][0].strip()
+                        if not prev or len(prev)>105 or prev[:1] in "•●▪-*·" or PERIOD.search(prev):
+                            break
+                        header=(ROLE.search(prev) or re.search(r"(?i)\b(?:company name|ltd|inc|gmbh|corp|limited|private)\b",prev))
+                        if not header or re.search(r"(?i)^(?:built|managed|using|used|led|improved|created|designed|implemented|in |as |during|responsible|the )\b",prev):
+                            break
+                        first=j
+                leading=text[:lines[first].start()]
+                if i or len(leading.strip())>160 or re.search(rf"{MONTH}\.?\s+{YEAR}",leading,re.I):
+                    starts.append(lines[first].start())
     elif section == "EDUCATION":
         prior = False
         for i, l in enumerate(lines):
@@ -125,17 +149,32 @@ def _blocks(text, section):
                 continue
             if prior:
                 start = l.start()
-                if i and SCHOOL.search(lines[i-1][0]) and not DEGREE.search(lines[i-1][0]):
+                if i and len(lines[i-1][0].strip())<90 and SCHOOL.search(lines[i-1][0]) and not re.search(r"(?i)recipient|fellowship|award|gpa|distinction",lines[i-1][0]) and not DEGREE.search(lines[i-1][0]):
                     start = lines[i-1].start()
                 starts.append(start)
             prior = True
     elif section == "PROJECTS":
-        for i, l in enumerate(lines):
-            s = l[0].strip()
-            if i and (re.match(r"(?i)^project\s*(?:\d+\s*)?[:–-]", s)
-                      or (len(s) <= 85 and (s.istitle() or s.isupper()) and len(s.split()) >= 2
-                          and not s.startswith(("•", "-", "●")))):
-                starts.append(l.start())
+        explicit=[l.start() for l in lines if re.match(r"(?i)^\s*(?:(?:final year|academic)\s+)?project\s*(?:\d+\s*)?[:–-]",l[0])]
+        if explicit:
+            starts.extend(explicit)
+        else:
+            for i,l in enumerate(lines[1:],1):
+                title=l[0].strip()
+                following=lines[i+1][0].strip() if i+1<len(lines) else ""
+                if (4<len(title)<=85 and (title.istitle() or title.isupper()) and len(title.split())>=2
+                    and re.match(r"(?i)^(?:built|developed|designed|implemented|created|description|tools)\b",following)
+                    and not re.search(r"[.,:;@]|https|resume|curriculum",title,re.I)):
+                    starts.append(l.start())
+    elif section=="PROFILE":
+        # A direct employment claim can occur in a summary. Keep just the
+        # clause as an undated job record so unrelated summary skills stay listed.
+        for claim in re.finditer(r"(?i)\b(?:having worked|worked|was employed) (?:for|by|at) [A-Z][a-zA-Z&.-]*(?: [A-Z][A-Za-z&.-]*){0,3} for (?:a period of )?\d+ years?",text):
+            if claim.start():
+                yield section,0,claim.start()
+            yield "EXPERIENCE",claim.start(),claim.end()
+            if claim.end()<len(text):
+                yield section,claim.end(),len(text)
+            return
     nested = list(re.finditer(r"(?im)(?:^|(?<=\n))[ \t]*(?:project\s*(?:\d+\s*)?[:–-])", text)) if section == "EXPERIENCE" else []
     cuts = sorted(set([0, len(text), *starts, *(m.start() for m in nested)]))
     nested_at = {m.start() for m in nested}
@@ -152,9 +191,36 @@ def _blocks(text, section):
 def records_for(doc):
     records = []
     previous = "PROFILE"
+    stacked=any(len(re.findall(r"(?im)^\s*(?:work experience|skills|education|certifications?|profile summary)\s*$",p["text"][-450:]))>=3 for p in doc["pages"])
     for page in doc["pages"]:
         text = page["text"]
-        for section, off, hi in section_spans(text, previous):
+        spans=list(section_spans(text,previous))
+        if stacked:
+            # Some two-column PDFs emit dates first and all section titles last.
+            # Do not attach those dates or sidebar skills to an arbitrary job.
+            # Admit only adjacent, unambiguous title/company or degree/school lines.
+            local=[]
+            lines=list(re.finditer(r"[^\n]+",text))
+            for i,l in enumerate(lines[:-1]):
+                line,following=l[0].strip(),lines[i+1][0].strip()
+                if ROLE.search(line) and len(line)<=85 and re.search(r"(?i)\b(?:ltd|limited|holding group|cement co|pvt|llc|corp)\b",following) and len(following)<95:
+                    local.append(("EXPERIENCE",l.start(),lines[i+1].end()))
+                elif DEGREE.fullmatch(line.rstrip(".")) and (SCHOOL.search(following) or following.isupper()):
+                    local.append(("EDUCATION",l.start(),lines[i+1].end()))
+            spans=[]
+            pos=0
+            for labeled,a,b in local:
+                if a<pos:
+                    continue
+                spans.extend([("OTHER",pos,a),(labeled,a,b)])
+                pos=b
+            spans.append(("OTHER",pos,len(text)))
+        elif previous=="PROJECTS" and page["page_num"]>1 and spans and spans[0][0]=="PROJECTS" and spans[0][1]==0:
+            typ,lo,hi=spans[0]
+            anchor=re.search(r"(?im)^\s*(?:project\s*\d+\s*[:–-])",text[:hi])
+            # A page header and carry-over description are not a new named project.
+            spans[:1]=[("OTHER",0,anchor.start()),(typ,anchor.start(),hi)] if anchor else [("OTHER",0,hi)]
+        for section, off, hi in spans:
             previous = section
             for typ, a, b in _blocks(text[off:hi], section):
                 lo, end = off+a, off+b
@@ -271,6 +337,25 @@ def match_entity(record, label, header_limit=420):
         prefix = text[:ent["start"]]
         line = prefix.rsplit("\n",1)[-1]
         if label in {"company", "job title"}:
+            before_first_bullet=re.split(r"[•●▪\uf0b7]",text,1)[0]
+            if ent["start"]>=len(before_first_bullet):
+                continue
+            if label=="company":
+                name=" ".join(ent["text"].split())
+                line_start=text.rfind("\n",0,ent["start"])+1
+                line_end=text.find("\n",ent["end"])
+                context=text[line_start:line_end if line_end>=0 else len(text)]
+                if (re.search(r"(?i)\b(?:company name|name of company|current company|confidential|city , state|hp-unix|state assist)\b", " ".join(text[:145].split()))
+                    or re.search(r"(?i)\b(?:managed|using|for client|developed|participated|received|delivered|project|provided|monitoring|supported|installation|configured|within|responsible)\b",context)
+                    or len(context)>140 or re.fullmatch(r"(?i)(?:company|client|suppliers?|contractors?|stakeholders?|industry|team|partners?|state|city|department|recruitment)",name)
+                    or name.islower() or len(name)<2):
+                    continue
+                if re.search(r"(?i)\b(?:Oracle|Microsoft|IBM|Amazon|Adobe|Google|SAP)\b",name) and not (
+                    re.fullmatch(r"(?i)\s*(?:Oracle|Microsoft|IBM|Amazon|Adobe|Google|SAP)(?: (?:corp(?:oration)?|inc\.?|global services|india))?\s*",context)
+                    or re.search(r"(?i)(?:employer|company|worked at|employed by)\s*:?\s*$",line)):
+                    continue
+            if label=="job title" and re.search(r"(?i)\b(?:Oracle SQL Developer|form developer|application server|SQL Server|software suite|IDE)\b",ent["text"]):
+                continue
             if re.search(r"(?im)^\s*[●•▪]\s+(?:built|developed|managed|designed|led|implemented|conducted)\b", prefix):
                 continue
             if re.search(r"(?i)(?:using|knowledge of|experience with|responsible for|built|implemented|managed|supported|led|on|client)\b.{0,45}$", line):
@@ -290,11 +375,21 @@ def main_facts(record):
         date = PERIOD.search(text)
         header_limit = min(380, max((date.end()+130 if date else 260), 180))
         company = match_entity(record, "company", header_limit)
+        explicit=re.search(r"(?im)^\s*Name and address of employer[ \t]*\n\s*([^\n]{2,100})",text)
+        if not explicit:
+            explicit=re.search(r"(?i)\b(?:having worked|worked|was employed) (?:for|by|at) (.+?) for (?:a period of )?\d+ years?",text)
+        if explicit:
+            company=dict(text=explicit[1].strip(),start=explicit.start(1),end=explicit.end(1))
+        if company and (re.search(r"(?i)\b(?:Company Name|City , State|employer name)\b",company["text"])
+                        or re.fullmatch(r"(?i)(?:city|state|company|employer|client|university|confidential)",company["text"].strip())):
+            company=None
         title = match_entity(record, "job title", header_limit)
+        if (labeled:=re.search(r"(?im)^\s*Occupation or position held[ \t]*\n\s*([^\n]{2,100})",text)):
+            title=dict(text=labeled[1].strip(),start=labeled.start(1),end=labeled.end(1))
         if not title:
             for line in text[:header_limit].splitlines()[:4]:
                 m = ROLE.search(line)
-                if m and len(line.strip()) <= 120 and not re.search(r"(?i)\b(developed|served|managed|supported|worked)\b", line[:m.end()]):
+                if m and len(line.strip()) <= 120 and not re.search(r"(?i)\b(?:Oracle|SQL Server|using|requirements|platform|tool)\b",line) and not re.search(r"(?i)\b(developed|served|managed|supported|worked)\b", line[:m.end()]):
                     pos = text.index(line)+m.start()
                     title = dict(text=m[0],start=pos,end=pos+len(m[0]))
                     break
@@ -363,6 +458,7 @@ def extraction_graph(documents, records_by_id):
                      file_hash=doc.get("file_hash",""),text_hash=doc.get("text_hash",""),
                      certification_quotes=[],certification_pages=[])
         nodes[rid] = dict(id=rid,label="Candidate",properties=props)
+        education_seen=set()
         for record in records:
             txt, record_id = record["record_text"],record["record_id"]
             page_num, kind = record["page_num"],record["kind"]
@@ -380,12 +476,23 @@ def extraction_graph(documents, records_by_id):
                       "ProjectRecord":("Project","WORKED_ON")}.get(kind)
             header = next((l.strip(" \t-:•") for l in txt.splitlines() if l.strip(" \t-:•")), "")[:130]
             # Exclude empty heading tails; record types require local evidence.
-            if kind=="WorkRecord" and not (main or role or facts):
+            if kind=="WorkRecord" and not (role or facts or (main and re.search(r"(?i)name and address of employer|worked (?:for|at) .+? for (?:a period of )?\d+ years?",txt))):
                 parent = None
+            if kind=="WorkRecord" and PERIOD.fullmatch(txt.strip(" \n:–-")):
+                parent=None
             if kind=="EduRecord" and not (main or facts.get("degree") or SCHOOL.search(txt[:200])):
                 parent = None
-            if kind=="ProjectRecord" and (len(header)<3 or not any(c.isalpha() for c in header)):
+            if kind=="ProjectRecord" and (len(header)<3 or not any(c.isalpha() for c in header)
+                    or re.fullmatch(r"(?i)(?:WORKED ON|PROJECTS?|RESUME|CURRICULUM VITAE)[ :]*",header)
+                    or (record["page_start"]==0 and not re.match(r"(?i)^project\b",header)
+                        and len(txt)<170)):
+
                 parent = None
+            if kind=="EduRecord" and main and facts["degree"] and facts["year"]:
+                signature=(main["text"].casefold(),facts["degree"].casefold(),facts["major"].casefold(),facts["year"])
+                if signature in education_seen:
+                    parent=None
+                education_seen.add(signature)
             if parent:
                 if kind=="ProjectRecord" and (proj:=match_entity(record,"project",95)):
                     header=proj["text"]
@@ -425,7 +532,7 @@ def extraction_graph(documents, records_by_id):
                 if source != "listed":
                     rel="USED_SKILL" if kind=="WorkRecord" else "APPLIED_SKILL"
                     link(record_id,skill,rel,a,b)
-        docs_out.append(dict(resume_id=rid,split=doc["split"],records=records))
+        docs_out.append(dict(resume_id=rid,split=doc["split"],records=records,pages=doc["pages"]))
     return dict(documents=docs_out,nodes=list(nodes.values()),edges=edges,noise_pruned_mentions=noise)
 
 

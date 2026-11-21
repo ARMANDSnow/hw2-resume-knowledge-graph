@@ -245,6 +245,17 @@ def comparison_rows(candidates):
              "加分技能命中": "、".join(c["matched_prefer_skills"]) or "无",
              "加分技能未命中": "、".join(c["unmatched_prefer_skills"]) or "无"} for c in candidates]
 
+def comparison_conclusion(candidates):
+    top_score = candidates[0]["preference_score"]
+    tied = [c for c in candidates if c["preference_score"] == top_score]
+    names = "、".join(c["resume_id"] for c in tied)
+    project = max(candidates, key=lambda c: (sum(bool(p["applied_skills"]) for p in c["project_evidence"]),
+                                             c["verified_skill_count"]))
+    depth = sum(bool(p["applied_skills"]) for p in project["project_evidence"])
+    return (f"在表内候选人中，{names} 的岗位偏好得分最高（{top_score:g}），建议优先安排面试。"
+            f"{project['resume_id']} 有 {depth} 段带技能证据的项目，工作或项目中可核对 "
+            f"{project['verified_skill_count']} 项实证技能，可据此设计实操环节。")
+
 def comparison_markdown(report):
     people = report["strict_matches"][:3]
     lines = ["# 测试集岗位对比", "", report["query"], "",
@@ -257,6 +268,7 @@ def comparison_markdown(report):
         lines.append("| " + " | ".join(map(str, row.values())) + " |")
     if len(people) == 3:
         lines.extend(["", "![三人四维得分对比](comparison.png)"])
+    lines.extend(["", comparison_conclusion(people)])
     for c in people:
         lines.extend(["", f"## {c['resume_id']}", "",
                       f"[原始 PDF](../../../{c['pdf_path']}) · [逐页文本](../../../{c['text_path']})",
@@ -285,7 +297,35 @@ def recommendation(c):
         return f"可进入岗位面试，重点核实工作经历中 {c['verified_skill_count']} 项实证技能的应用深度，以及独立承担项目的范围。"
     return "可安排基础技能面试，先要求演示与岗位相关的实操样例，再评估项目交付能力。"
 
+def query_markdown(report):
+    hits, near = report["strict_matches"], report["near_misses"]
+    lines = ["# 测试集岗位检索", "", report["query"], "",
+             f"需求长度 {len(report['query'])} 字，严格命中 {len(hits)} 人，近似候选 {len(near)} 人。", "",
+             "## 条件与查询", "", "```json", json.dumps(report["ir"], ensure_ascii=False, indent=2),
+             "```", "", "```cypher", report["browser_cypher"], "```", "", "## 严格命中", ""]
+    if not hits:
+        lines.append("测试集中无人满足全部硬条件。")
+    for c in hits:
+        lines.extend([f"### {c['resume_id']}", "",
+                      f"[原始 PDF](../../../{c['pdf_path']}) · [全文](../../../{c['text_path']})", "",
+                      f"{DEGREE_NAMES[c['degree_level']]}，净工龄 {c['merged_exp_months']} 个月，"
+                      f"项目 {c['project_count']} 段。符合的岗位技能为 {'、'.join(c['matched_skills']) or '未指定'}。"])
+        for name in c["matched_skills"]:
+            quote = next(e for e in c["skill_evidence"] if e["skill"] == name)
+            lines.extend(["", f"- {name} · 第 {quote['page_num']} 页 · {quote['source']} · "
+                              + " ".join(quote["evidence_quote"].split())])
+        lines.append("")
+    if hits and report["query"] == MAIN_QUERY:
+        lines.append("[前三位候选人多维对比](comparison.md)")
+    lines.extend(["", "## 近似候选与缺失硬条件", ""])
+    for c in near:
+        lines.append(f"- {c['resume_id']}　" + "；".join(c["missing_conditions"]))
+    if not near:
+        lines.append("所有测试候选人均通过硬条件。")
+    return "\n".join(lines) + "\n"
+
 def run_stage5(driver=None):
+    from .config import write_json
     from .visuals import radar
     from .stage3_neo4j import get_driver
     if driver is None:
@@ -294,7 +334,8 @@ def run_stage5(driver=None):
     OUT.mkdir(parents=True, exist_ok=True)
     main, zero = (execute_query(query, driver) for query in (MAIN_QUERY, ZERO_QUERY))
     for name, report in (("main", main), ("zero", zero)):
-        (OUT / f"{name}.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_json(OUT / f"{name}.json", report)
+        (OUT / f"{name}.md").write_text(query_markdown(report), encoding="utf-8")
     (OUT / "comparison.md").write_text(comparison_markdown(main), encoding="utf-8")
     top = main["strict_matches"][:3]
     if len(top) == 3:

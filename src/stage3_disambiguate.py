@@ -8,6 +8,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 from .stage2_extract import ROLE, quote_at
+from .provenance import validate_quote
 
 # Each vendor sense requires evidence that the person worked at that entity.
 # A product mention must name the product or supply an explicit database/ERP context.
@@ -15,7 +16,7 @@ PRODUCTS = {
     "Microsoft": r"Microsoft\s+(?:SQL Server|Azure|Excel|Office|Windows|Power BI|Access|Word|PowerPoint|Visual Studio|Teams|SharePoint|Dynamics(?:\s+365)?)",
     "Amazon": r"Amazon\s+(?:Web Services|AWS|EC2|S3|Redshift|DynamoDB|CloudWatch|SageMaker|Lambda)",
     "Google": r"Google\s+(?:Cloud(?: Platform)?|Analytics|AdWords|BigQuery|Sheets|Data Studio|Firebase|Tag Manager|Maps API|Colab)",
-    "IBM": r"IBM\s+(?:DB2|SPSS|Watson|Cognos|WebSphere|Cloud|Rational|Mainframe)",
+    "IBM": r"IBM\s+(?:DB2|SPSS|Watson|Cognos|WebSphere|Cloud|Bluemix|Rational|MQ(?: Series)?|Mainframe)",
     "Oracle": r"Oracle\s+(?:Database|SQL|PL/SQL|DB(?:MS)?|RDBMS|PeopleSoft|ERP|EBS|Financials|Fusion|Forms|\d{1,2}[cig]\b)",
     "SAP": r"SAP\s+(?:ERP|HANA|S/4HANA|R/3|ABAP|FICO|FI/CO|Business(?: One|Objects)?|MM|SD|BW|ECC)",
     "Cisco": r"Cisco\s+(?:IOS|Packet Tracer|ASA|routers?|switches?|UCS|Webex)",
@@ -28,6 +29,7 @@ VENDOR_HINT = re.compile(r"(?i)\b(?:developer|scientist|engineer|manager|consult
 PROFILES = {
     "company":"employer employee employment work experience hired worked at intern engineer developer manager company corporation team role responsibilities",
     "product":"software skills tools technologies database programming expertise developed using platform technology environment applications Microsoft Office Excel SQL cloud",
+    "job_rank":"associate position job employment developer engineer colleague role title senior consultant manager rank",
     "degree":"university education degree master science major graduate bachelor studies college academic engineering computer science",
 }
 
@@ -48,6 +50,9 @@ def scores(record, start, end, senses, header_role=False):
         if sense=="company":
             loc=1. if record["kind"]=="WorkRecord" and header_role else .08
             coh=float(("job title" in labels or bool(ROLE.search(window))) and header_role)
+        elif sense=="job_rank":
+            loc=float(record["kind"]=="WorkRecord")
+            coh=float("job title" in labels or bool(ROLE.search(window)))
         elif sense=="degree":
             loc=float(record["kind"]=="EduRecord")
             coh=float(bool(labels & {"university","major","degree"}) or bool(re.search(r"(?i)\b(?:university|college|science|engineering)\b",window)))
@@ -63,6 +68,12 @@ def scores(record, start, end, senses, header_role=False):
 
 def _employer_header(record, brand):
     text=record["record_text"]
+    direct=re.search(rf"(?i)\b(?:having worked|worked|was employed) (?:for|by|at) ({brand})\b",text)
+    if direct:
+        return next(m for m in re.finditer(r"(?i)\b"+brand+r"\b",text) if m.start()==direct.start(1))
+    tagged=re.search(rf"(?im)name and address of employer[ \t]*\n\s*({brand})\b",text)
+    if tagged:
+        return next(m for m in re.finditer(r"(?i)\b"+brand+r"\b",text) if m.start()==tagged.start(1))
     for m in re.finditer(r"(?i)\b"+re.escape(brand)+r"\b",text[:350]):
         line_start=text.rfind("\n",0,m.start())+1
         end=text.find("\n",m.end())
@@ -85,6 +96,7 @@ def _employer_header(record, brand):
 def resolve(extractions):
     graph=deepcopy(extractions)
     nodes={n["id"]:n for n in graph["nodes"]}
+    pages={(d["resume_id"],p["page_num"]):p["text"] for d in graph["documents"] for p in d["pages"]}
     per_record=defaultdict(list)
     for e in graph["edges"]:
         per_record[e["properties"]["record_id"]].append(e)
@@ -92,10 +104,11 @@ def resolve(extractions):
     def attach(rid,record,src,dst,rel,a,b,**extra):
         txt=record["record_text"]
         p=dict(resume_id=rid,record_id=record["record_id"],page_num=record["page_num"],
-               evidence_quote=quote_at(txt,a,b),surface=txt[a:b],evidence_valid=True,**extra)
+               evidence_quote=quote_at(txt,a,b),surface=txt[a:b],**extra)
+        p["evidence_valid"]=validate_quote(pages[rid,record["page_num"]],p["evidence_quote"])
         # Only spans from a record already proven to be a literal slice of the PDF
         # are admitted. The independent verifier reloads the PDF for every edge.
-        if not p["evidence_quote"] or p["evidence_quote"] not in txt:
+        if not p["evidence_valid"] or not validate_quote(txt,p["evidence_quote"]):
             raise ValueError("invalid record excerpt")
         node_edge=next((e for e in per_record[record["record_id"]] if e["source"]==src and e["target"]==dst and e["type"]==rel
                        and e["properties"]["surface"].casefold()==p["surface"].casefold()),None)
@@ -157,6 +170,20 @@ def resolve(extractions):
                     evidence[brand]["product"].append(sense_row(match,sc))
             if d["split"]!="train":
                 continue
+            # Associate denotes a job rank (e.g. Senior Associate) as well
+            # as a formal academic degree (Associate of Applied Science).
+            for edge in list(per_record[record_id]):
+                p=edge["properties"]
+                if edge["type"]=="HELD_ROLE" and (m:=re.search(r"\bAssociate\b",p["surface"],re.I)):
+                    at=txt.find(p["surface"])+m.start()
+                    sc=scores(r,at,at+len(m[0]),("job_rank","degree"))
+                    if sc["job_rank"]["total"]>sc["degree"]["total"]:
+                        evidence["Associate"]["job_rank"].append(sense_row(edge,sc))
+            if kind=="EduRecord" and record_id in nodes and (m:=re.search(r"(?i)\bAssociate(?:['’]s)? (?:of|degree in) (?:Applied Science|Arts|Science|Business|Engineering)\b",txt)):
+                sc=scores(r,m.start(),m.end(),("job_rank","degree"))
+                if sc["degree"]["total"]>sc["job_rank"]["total"]:
+                    edge=attach(rid,r,rid,record_id,"HAS_EDUCATION",m.start(),m.end())
+                    evidence["Associate"]["degree"].append(sense_row(edge,sc))
             # The identical abbreviation MS can denote Master of Science or
             # Microsoft in an explicitly named software suite (e.g. MS Office).
             if kind=="EduRecord" and record_id in nodes:
@@ -172,6 +199,11 @@ def resolve(extractions):
                     sc=scores(r,at,at+len(m[0]),("degree","product"))
                     if sc["product"]["total"]>sc["degree"]["total"]:
                         evidence["MS"]["product"].append(sense_row(edge,sc))
+    for e in graph["edges"]:
+        p=e["properties"]
+        p["evidence_valid"]=validate_quote(pages[p["resume_id"],p["page_num"]],p["evidence_quote"])
+        if not p["evidence_valid"]:
+            raise ValueError(f"Quote mismatch: {p['record_id']} {e['type']}")
     graph["nodes"]=list(nodes.values())
     groups=[]
     for surface,by_sense in sorted(evidence.items()):

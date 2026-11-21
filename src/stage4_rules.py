@@ -338,7 +338,9 @@ def fit(train):
     totals = [score(r["features"], rules)[0] for r in train]
     bounds = {d:[quantile([t[d] for t in totals], q) for q in (.25, .50, .75)] for d in DIMENSIONS}
     return dict(train_size=len(train), train_ids=sorted(r["resume_id"] for r in train),
-                cohort_hash=cohort_hash(train), grade_thresholds=bounds, rules=rules)
+                cohort_hash=cohort_hash(train), grade_thresholds=bounds,
+                grade_policy="零分缺少命中证据，统一 D；正分按训练 Q75、Q50、Q25 依次取 A、B、C，否则 D。",
+                rules=rules)
 
 
 def score(features, rules):
@@ -357,7 +359,14 @@ def evaluate(features, model):
     grades = {}
     for d, amount in scores.items():
         lo, mid, hi = model["grade_thresholds"][d]
-        grades[d] = "A" if amount >= hi else "B" if amount >= mid else "C" if amount >= lo else "D"
+        if not amount:
+            grades[d] = "D"
+        elif amount >= hi:
+            grades[d] = "A"
+        elif amount >= mid:
+            grades[d] = "B"
+        else:
+            grades[d] = "C" if amount >= lo else "D"
     return dict(scores=scores, grades=grades, hit_rules=hits)
 
 

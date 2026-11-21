@@ -57,5 +57,5 @@ def write_audit(manifest, graph):
     audit = graph.get("coref_audit", {})
     for key in ("cross_document_groups","within_document_chains","negative_controls"):
         lines.append(f"- {key}　{len(audit.get(key,[]))}")
-    lines += ["", "核对技能表与项目的归属时，可逐个比对记录编号与页内引文。逐份原文抽查结论保存在同目录的 pilot_review.json。"]
+    lines += ["", "核对技能表与项目的归属时，可逐个比对记录编号与页内引文。[逐份人工式抽查记录](pilot_review_notes.md)列出每份简历核对的位置和结果。放行结论与试点哈希见 pilot_review.json。"]
     (PROCESSED/"pilot_audit.md").write_text("\n".join(lines)+"\n",encoding="utf-8")

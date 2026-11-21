@@ -1,5 +1,10 @@
 """Accessible static figures for the independent reports and the Streamlit demo."""
 from pathlib import Path
+import os
+import tempfile
+
+# Keep repeated command-line runs fast on hosts with a read-only home cache.
+os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "hw2-kg-matplotlib"))
 
 import matplotlib
 matplotlib.use("Agg")

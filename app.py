@@ -1,6 +1,5 @@
 """运行方式：.venv/bin/streamlit run app.py"""
 import json
-import re
 from pathlib import Path
 
 import pandas as pd
@@ -9,7 +8,8 @@ from neo4j.exceptions import Neo4jError, ServiceUnavailable, SessionExpired
 
 from src.stage3_neo4j import get_driver, graph_stats
 from src.stage5_query import (
-    DEGREE_NAMES, DIMS, MAIN_QUERY, ZERO_QUERY, comparison_rows, execute_query, recommendation,
+    DEGREE_NAMES, DIMS, MAIN_QUERY, ZERO_QUERY, comparison_conclusion, comparison_rows,
+    execute_query, recommendation,
 )
 
 ROOT = Path(__file__).resolve().parent
@@ -109,6 +109,9 @@ def graph_tab(stats):
         cols = st.columns(2)
         for col, metric, label in zip(cols, ("nodes", "relationships"), ("领域节点", "关系类型")):
             col.subheader(label)
+            if not data[metric]:
+                col.caption("当前范围内尚无数据。")
+                continue
             counts = pd.DataFrame(list(data[metric].items()), columns=["类型", "数量"]).set_index("类型")
             col.bar_chart(counts, horizontal=True, color="#287687" if metric == "nodes" else "#A64F36")
     resolved = artifact(PROCESSED / "resolved_kg.json")
@@ -155,7 +158,9 @@ def rules_tab():
     sync = artifact(PROCESSED / "sync_check_report.json")
     if sync:
         st.subheader("固定测试候选人的两次评估")
-        st.json({k: sync[k] for k in ("snapshot_a", "snapshot_b")}, expanded=False)
+        st.dataframe([{"训练快照": k[-1].upper(), "训练人数": sync[k]["train_size"],
+                       "快照哈希": sync[k]["cohort_hash"]} for k in ("snapshot_a", "snapshot_b")],
+                     hide_index=True, use_container_width=True)
         st.dataframe(sync["threshold_changes"], hide_index=True, use_container_width=True)
         for anchor in sync["anchors"]:
             with st.expander(f"锚点简历 {anchor['resume_id']}"):
@@ -175,7 +180,8 @@ def rules_tab():
         with right:
             st.dataframe([{"维度": name, "得分": profile["scores"][dim], "等级": profile["grades"][dim]}
                           for dim, name in DIMS.items()], hide_index=True)
-            st.write(profile["analysis"])
+            for insight in profile["analysis"]:
+                st.write(insight)
         for rule, examples in profile["rule_evidence"].items():
             with st.expander(f"{rule} · 原文证据"):
                 for e in examples:
@@ -203,6 +209,7 @@ def query_tab(driver, docs):
         return
     with st.expander("硬条件、排序偏好与可执行 Cypher"):
         ir = report["ir"]
+        st.caption("每个必选技能组至少命中一项，所有组和最低学历、净工龄均须满足。")
         st.json({"MUST": {k: ir[k] for k in ("must_skills", "min_degree_level", "min_exp_years")},
                  "PREFER": {k: ir[k] for k in ("prefer_signals", "prefer_skills")}})
         st.code(report["browser_cypher"], language="cypher")
@@ -234,9 +241,11 @@ def query_tab(driver, docs):
         st.subheader("前三位严格命中候选人")
         top = hits[:3]
         st.dataframe(comparison_rows(top), hide_index=True, use_container_width=True)
+        st.write(comparison_conclusion(top))
         saved = artifact(PROCESSED / "query_reports/main.json")
         chart = PROCESSED / "query_reports/comparison.png"
-        if chart.is_file() and saved.get("strict_matches", [])[:3] == top:
+        saved_scores = [(c["resume_id"], c["scores"]) for c in saved.get("strict_matches", [])[:3]]
+        if chart.is_file() and saved_scores == [(c["resume_id"], c["scores"]) for c in top]:
             st.image(str(chart), width=510)
         for c in top:
             with st.expander(c["resume_id"] + " · 岗位适配与面试建议"):

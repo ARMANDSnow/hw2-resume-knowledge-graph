@@ -117,6 +117,9 @@ class Audit:
                 require(page["text"][r["page_start"]:r["page_end"]]==r["record_text"] and
                         r["char_start"]==page["char_start"]+r["page_start"], "记录偏移不符 "+r["record_id"])
                 records[r["record_id"]] = r
+        mentions = sum(len(r["entities"]) for r in records.values())
+        require(mentions > 0 and extraction.get("model","").startswith("urchade/gliner_"), "缺少真实模型抽取")
+        verified = {(e["p"]["record_id"],e["target"],e["p"]["evidence_quote"],e["type"]) for e in self.edges}
         kinds = {"AT_COMPANY":"WorkRecord","HELD_ROLE":"WorkRecord","USED_SKILL":"WorkRecord",
                  "AT_UNIVERSITY":"EduRecord","APPLIED_SKILL":"ProjectRecord"}
         relevant = [e for e in self.edges if e["type"] in {*kinds,"HAS_SKILL"}]
@@ -126,7 +129,8 @@ class Audit:
             p = e["p"]
             r = records[p["record_id"]]
             require(r["page_num"]==p["page_num"] and len(p["evidence_quote"])<=240 and
-                    validate_quote(r["record_text"],p["evidence_quote"]), "证据不在记录内 "+p["record_id"])
+                    validate_quote(r["record_text"],p["evidence_quote"]) and validate_quote(p["evidence_quote"], p["surface"]),
+                    "证据或实体不在记录内 "+p["record_id"])
             typ = e["type"]
             if typ in kinds:
                 require(kinds[typ]==r["kind"] and e["source"]==p["record_id"],"跨记录连边 "+p["record_id"])
@@ -134,9 +138,13 @@ class Audit:
                 require(e["source"]==p["resume_id"] and r["kind"] in
                         {"listed":{"SKILLS","PROFILE"},"project_verified":{"ProjectRecord"},
                          "work_verified":{"WorkRecord"}}.get(p["source"],{}), "技能来源不符 "+p["record_id"])
+                if p["source"] != "listed":
+                    rel = "USED_SKILL" if p["source"] == "work_verified" else "APPLIED_SKILL"
+                    require((p["record_id"],e["target"],p["evidence_quote"],rel) in verified,
+                            "实证 HAS_SKILL 缺少对应记录边 "+p["record_id"])
             valid += bool(p["evidence_valid"] and self.quote_ok(p))
         require(valid/len(relevant)>=.95, "引文校验率低于 95%")
-        return dict(records=len(records),gliner_mentions=sum(len(r["entities"]) for r in records.values()),
+        return dict(records=len(records),gliner_mentions=mentions,
                     key_edges=len(relevant),valid_quotes=valid,quote_valid_rate=valid/len(relevant),
                     cross_record_errors=0,relation_counts=dict(Counter(e["type"] for e in relevant)))
 

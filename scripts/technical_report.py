@@ -44,7 +44,7 @@ def render(report):
     labels={"pdf_files":"归档 PDF","duplicate_file":"重复文件","duplicate_text":"异文件同文本","low_quality":"空文本或质量过滤",
             "unreadable":"无法提取","missing_sections":"教育、任职或技能标题不完整","outside_role_scope":"岗位词或页数筛选"}
     lines+=table(["语料处理","份数"],[(v,m[2]["corpus"].get(k,0)) for k,v in labels.items()]+[("符合选样条件",m[2]["eligible"])])
-    lines += [f"两级共排除 {m[2]['dedup_removed_count']} 份重复。软件与数据岗位样本需包含三类标题和至少三种领域词，"
+    lines += [f"两级共排除 {m[2]['dedup_removed_count']} 份重复。哈希互斥检验覆盖相同字节或相同规范化全文；同一人可能有内容不同的简历版本。软件与数据岗位样本需包含三类标题和至少三种领域词，"
               "取四页以内的简历。按文本哈希排序，以 seed=42 洗牌，兼顾有无独立项目标题的版式。测试集先固定，"
               "训练集预留品牌歧义上下文的分层入口。样本代表这一岗位与版式范围。","",
               f"最终保留 {m[2]['pages']} 页。文件哈希跨集交集为 {m[2]['file_hash_overlap']}，文本哈希跨集交集为 "
@@ -87,7 +87,7 @@ def render(report):
             "特征来自带来源的教育、任职、项目与技能关系。工龄按可解析的月份闭区间取并集；同时期兼职只计一次。"
             "实证占比用工作或项目中出现的去重技能数除以全部去重技能数，分母至少为一。职级成长按时间比较早期与后续职级。"
             "每个原子特征对应一条可执行规则。经验分位数取训练观测值，若分位为零则转用正值子集。每条命中计 25 分，"
-            "每维满分 100；A/B/C/D 由训练分数的四分位边界决定。",""]
+            "每维满分 100；零分定为 D，正分按训练分数的四分位边界确定 A/B/C/D。",""]
     lines+=table(["规则","特征与业务含义","实际标定","Cypher 条件","训练覆盖"],[(r["rule_id"],f"{r['feature']} · {r['business_meaning']}",r["threshold_formula"],r["cypher_predicate"],f"{r['train_hit_count']} / {model['train_size']} ({r['train_hit_rate']:.1%})") for r in model["rules"]])
     lines+=[sync["design"],"",f"A 的快照签名为 `{sync['snapshot_a']['cohort_hash']}`，B 为 `{sync['snapshot_b']['cohort_hash']}`。"
             f"两个训练快照各有 {m[6]['snapshot_sizes'][0]} 和 {m[6]['snapshot_sizes'][1]} 人。{m[6]['threshold_changes']} 条规则阈值变化，"
@@ -113,7 +113,7 @@ def render(report):
     lines+=table(["近似候选","缺失项"],[(c["resume_id"],"；".join(c["missing_conditions"])) for c in zero["near_misses"][:3]])
     lines+=["## 复核边界","",
             "简历给出的技能和业绩来自候选人自述。引文核验检验可追溯性，业务语义仍需逐记录抽查。"
-            "无可靠日期的经历不计入净工龄，持续至今的日期按记录解析器中的固定参考月折算。PDF 多栏版式、匿名占位和历史简历会影响项目边界与工龄解释。"
+            "无可靠日期的经历不计入净工龄，持续至今的日期按作业快照月 2026-11 折算，古老简历可能因此高估工龄。PDF 多栏版式、匿名占位和历史简历会影响项目边界与工龄解释。"
             "这组分位阈值描述固定训练队列，未使用录用结果标签，也未测量实际岗位表现。","",
             "[机器可读验收结果](../data/processed/acceptance_report.json) · [规则元数据与原文样例](../data/processed/rules_model.json) · [同步实验快照](../data/processed/sync_check_report.json)",""]
     return "\n".join(lines)
