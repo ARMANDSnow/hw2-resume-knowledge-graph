@@ -121,4 +121,6 @@ def render(report):
             "无可靠日期的经历不计入净工龄，只有年份的日期用年初或年末作边界，持续至今的日期按作业快照月 2026-11 折算，古老简历可能因此高估工龄。PDF 多栏版式、匿名占位和历史简历会影响项目边界与工龄解释。"
             "这组分位阈值描述固定训练队列，未使用录用结果标签，也未测量实际岗位表现。","",
             "[机器可读验收结果](../data/processed/acceptance_report.json) · [规则元数据与原文样例](../data/processed/rules_model.json) · [同步实验快照](../data/processed/sync_check_report.json)",""]
+    if (PROCESSED.parents[1]/"demo_video/五阶段演示.mp4").is_file():
+        lines += ["[五阶段界面实录（MP4）](../demo_video/五阶段演示.mp4)",""]
     return "\n".join(lines)
