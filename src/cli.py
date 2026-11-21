@@ -9,9 +9,15 @@ def extract_rows(manifest):
     return extract(manifest["documents"], PROCESSED)
 
 
-def resolve_graph(extraction):
+def resolve_graph(extraction, manifest):
     from . import stage3_coref, stage3_disambiguate
-    return stage3_coref.resolve(stage3_disambiguate.resolve(extraction))
+    from .provenance import validate_quote
+    graph = stage3_coref.resolve(stage3_disambiguate.resolve(extraction))
+    pages = {(d["resume_id"],p["page_num"]):p["text"] for d in manifest["documents"] for p in d["pages"]}
+    for edge in graph["edges"]:
+        p = edge["properties"]
+        p["evidence_valid"] = validate_quote(pages[(p["resume_id"],p["page_num"])], p["evidence_quote"])
+    return graph
 
 
 def pilot(size):
@@ -20,7 +26,7 @@ def pilot(size):
     if size != 12:
         raise ValueError("本规格要求试点为 12 份")
     manifest = collect(pilot=True, size=size)
-    graph = resolve_graph(extract_rows(manifest))
+    graph = resolve_graph(extract_rows(manifest),manifest)
     write_json(PROCESSED / "pilot_graph.json", graph)
     write_audit(manifest, graph)
     print(PROCESSED / "pilot_audit.md")
@@ -46,7 +52,7 @@ def execute(stage, focus_ids):
         write_json(PROCESSED / "extractions.json", graph)
     elif stage == 3:
         from .stage3_neo4j import load_graph
-        graph = resolve_graph(read_json(PROCESSED / "extractions.json"))
+        graph = resolve_graph(read_json(PROCESSED / "extractions.json"),read_json(MANIFEST))
         write_json(PROCESSED / "resolved_kg.json", graph)
         load_graph(graph=graph)
     elif stage == 4:
