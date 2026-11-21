@@ -345,6 +345,13 @@ def match_entity(record, label, header_limit=420):
                 line_start=text.rfind("\n",0,ent["start"])+1
                 line_end=text.find("\n",ent["end"])
                 context=text[line_start:line_end if line_end>=0 else len(text)]
+                # Technology names and generic occupations/sectors in a work
+                # record remain skills or prose, even if NER labels them company.
+                if (name.casefold() in SKILL_MAP or re.search(r"(?i)\bindustry$",name)
+                    or re.search(r"(?i)\b(?:across|providing|responsible for|maintained|assisted|certified by|serviced|attended)\b",line)
+                    or (len(name)<=4 and name.isupper() and name!=context.strip() and not re.search(r"(?i)\b(?:employer|company|employed by|worked at|engineer at)\b",context))
+                    or (line_start>150 and re.search(r"(?im)^(?:organized|enforced|promoted|certified|developed|maintained|implemented|facilitated)\b",prefix))):
+                    continue
                 if (re.search(r"(?i)\b(?:company name|name of company|current company|confidential|city , state|hp-unix|state assist)\b", " ".join(text[:145].split()))
                     or re.search(r"(?i)\b(?:managed|using|for client|developed|participated|received|delivered|project|provided|monitoring|supported|installation|configured|within|responsible)\b",context)
                     or len(context)>140 or re.fullmatch(r"(?i)(?:company|client|suppliers?|contractors?|stakeholders?|industry|team|partners?|state|city|department|recruitment)",name)
@@ -464,6 +471,12 @@ def extraction_graph(documents, records_by_id):
             page_num, kind = record["page_num"],record["kind"]
             def link(src,dst,rel,start,end,**more):
                 ev = quote_at(txt,start,end)
+                if rel=="AT_COMPANY":
+                    # A labeled Europass employer field often sits on the line
+                    # before the company name; display that evidence together.
+                    field=re.search(r"(?im)(?:Name and address of employer|Name of employer|Employer|Company)[ \t]*[:\s]*$",txt[:start])
+                    if field and end-field.start()<=240:
+                        ev=txt[field.start():end].strip()
                 evidence = dict(resume_id=rid,page_num=page_num,record_id=record_id,
                     evidence_quote=ev,evidence_valid=validate_quote(pages[page_num],ev),surface=txt[start:end],**more)
                 edges.append(dict(source=src,target=dst,type=rel,properties=evidence))
@@ -494,13 +507,16 @@ def extraction_graph(documents, records_by_id):
                     parent=None
                 education_seen.add(signature)
             if parent:
+                if kind=="EduRecord" and facts.get("degree"):
+                    header=" / ".join(dict.fromkeys(v for v in (facts["degree"],facts.get("major",""),main["text"] if main else "") if v))
                 if kind=="ProjectRecord" and (proj:=match_entity(record,"project",95)):
                     header=proj["text"]
                 meta = dict(name=header or kind, record_id=record_id,resume_id=rid,record_text=txt,page_num=page_num,
                             char_start=record["char_start"],page_start=record["page_start"],**facts)
                 nodes[record_id]=dict(id=record_id,label=parent[0],properties=meta)
-                at=txt.find(header)
-                link(rid,record_id,parent[1],max(0,at),max(0,at)+min(len(header),130))
+                evidence_name=facts.get("degree") or header
+                at=txt.find(evidence_name)
+                link(rid,record_id,parent[1],max(0,at),max(0,at)+min(len(evidence_name),130))
                 if main:
                     label, rel = ("Company","AT_COMPANY") if kind=="WorkRecord" else ("University","AT_UNIVERSITY")
                     link(record_id,target(label,main["text"]),rel,main["start"],main["end"])

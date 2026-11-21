@@ -90,14 +90,28 @@ class Audit:
         docs = self.manifest["documents"]
         n = Counter(d["split"] for d in docs)
         require(n == {"train":60, "test":20} and len(self.docs)==80, "固定快照并非 60/20")
+        pdfs = {str(p.relative_to(ROOT)) for p in (ROOT/"data/sample_pdfs").rglob("*.pdf")}
+        texts = {str(p.relative_to(ROOT)) for p in (ROOT/"data/extracted_txt").glob("*.txt")}
+        require(pdfs=={d["pdf_path"] for d in docs} and texts=={d["text_path"] for d in docs}, "导出目录含快照外文件")
+        fingerprints = []
         for d in docs:
             original = (ROOT/d["pdf_path"]).read_bytes()
             pages = pdf_pages(original)
             text = "\n".join(pages)
+            words = re.findall(r"[a-z0-9]+",normalize_text(text))
+            fingerprints.append(({tuple(words[i:i+5]) for i in range(len(words)-4)},d["split"]))
             require(page_boundaries(pages)==d["pages"] and (ROOT/d["text_path"]).read_bytes()==text.encode(),
                     "PDF 逐页原文或偏移不符 "+d["resume_id"])
             require(d["file_hash"] == sha256(original) and d["text_hash"] == sha256(normalize_text(text)),
                     "哈希不符 "+d["resume_id"])
+        max_cross = 0.0
+        for i,(a,split) in enumerate(fingerprints):
+            for b,other_split in fingerprints[:i]:
+                overlap = len(a & b)
+                jaccard = overlap/max(1,len(a)+len(b)-overlap)
+                require(jaccard < .70,"快照中存在共享大段文本的近重复")
+                if split != other_split:
+                    max_cross = max(max_cross,jaccard)
         for key in ("text_hash","file_hash"):
             require(len({d[key] for d in docs})==len(docs), "重复 "+key)
         for split in n:
@@ -105,7 +119,9 @@ class Audit:
         require(self.manifest["cohort_hash"]==sha256("\n".join(d["split"]+":"+d["text_hash"] for d in docs)),"快照签名不符")
         return dict(**n, pages=sum(len(d["pages"]) for d in docs), file_hash_overlap=0,text_hash_overlap=0,
                     cohort_hash=self.manifest["cohort_hash"],dedup_removed_count=self.manifest["dedup_removed_count"],
-                    eligible=self.manifest["eligible"],corpus=self.manifest["corpus_counts"])
+                    eligible=self.manifest["eligible"],corpus=self.manifest["corpus_counts"],
+                    near_duplicate_excluded=sum(len(g["excluded"]) for g in self.manifest["near_duplicate_groups"]),
+                    near_duplicate_threshold=.70,maximum_cross_split_jaccard=max_cross)
 
     def ac3(self):
         extraction = read_json(PROCESSED/"extractions.json")
@@ -307,16 +323,19 @@ def check_package():
         require(all(n.startswith(NAME+"/") and not set(Path(n).parts)&{".venv","neo4j_data","raw","__pycache__",".git"}
                     and not n.endswith("ResumesPDF.zip") for n in paths), "压缩包命名或排除项不符")
         require(f"{NAME}/demo_video/" in paths,"缺少视频目录")
-        for start in ("src","app.py","scripts","docs","data/sample_pdfs","data/extracted_txt","data/processed",
+        expected_files = set()
+        for start in ("src","app.py","scripts","docs","demo_video","data/sample_pdfs","data/extracted_txt","data/processed",
                       "README.md","pyproject.toml","requirements.txt","docker-compose.yml",".env.example"):
             root=ROOT/start
             for path in root.rglob("*") if root.is_dir() else [root]:
                 if path.is_file() and "__pycache__" not in path.parts and path.name!=".DS_Store" and path.suffix!=".pyc":
                     entry=NAME+"/"+path.relative_to(ROOT).as_posix()
+                    expected_files.add(entry)
                     require(entry in paths, "提交包缺少 "+entry)
                     # The report is written after the check; its content is checked after publication.
                     if path!=AC:
                         require(z.read(entry)==path.read_bytes(),"提交包文件过期 "+entry)
+        require(expected_files=={n for n in paths if not n.endswith("/")}, "提交包包含过期或清单外文件")
     return dict(package=PACKAGE.name, document="docs/技术说明文档.md",video_directory=True)
 
 

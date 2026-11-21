@@ -61,7 +61,7 @@ RETURN p LIMIT 30
 ## 目录与打包
 
 - src/ 实现「采、治、存、算、用」及 CLI，app.py 为五标签页入口。
-- data/sample_pdfs/、data/extracted_txt/ 保存 60/20 固定 PDF、文本与页边界。
+- data/sample_pdfs/、data/extracted_txt/ 保存 60/20 固定 PDF、文本与页边界。先在整个归档做双哈希去重，再在符合采样条件的简历中按连续五词集合相似度排除近重复版本。
 - data/processed/ 保存模型窗口缓存、原始/规范图谱、试点核对记录、16 条规则、同步实验、重点画像及查询结果。
 - docs/技术说明文档.md 由实际运行数据生成。scripts/verify_acceptance.py 自检，scripts/technical_report.py 渲染说明书。
 - demo_video/ 用于放置演示录屏。放入视频后再次打包即可。

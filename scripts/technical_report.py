@@ -44,7 +44,12 @@ def render(report):
     labels={"pdf_files":"归档 PDF","duplicate_file":"重复文件","duplicate_text":"异文件同文本","low_quality":"空文本或质量过滤",
             "unreadable":"无法提取","missing_sections":"教育、任职或技能标题不完整","outside_role_scope":"岗位词或页数筛选"}
     lines+=table(["语料处理","份数"],[(v,m[2]["corpus"].get(k,0)) for k,v in labels.items()]+[("符合选样条件",m[2]["eligible"])])
-    lines += [f"两级共排除 {m[2]['dedup_removed_count']} 份重复。哈希互斥检验覆盖相同字节或相同规范化全文；同一人可能有内容不同的简历版本。软件与数据岗位样本需包含三类标题和至少三种领域词，"
+    lines += [f"在 {m[2]['eligible']} 份符合范围的简历中另行比较连续五词集合，Jaccard 相似度为交集大小除以并集大小。达到 "
+              f"{m[2]['near_duplicate_threshold']:.2f} 的版本视为同组，保留英文词数较多的一份，同长按文本哈希确定。"
+              f"按此规则另剔除 {m[2]['near_duplicate_excluded']} 个改写版本。最初的双哈希快照曾含相近的 .NET 岗位简历，"
+              "本次在分配 train/test 前过滤该组，再按既定种子从同层候补中补入。原 20 份测试简历、预设岗位需求和 12 份试点成员均保持固定。"
+              f"复查全部 60 × 20 个跨集组合，最高五词 Jaccard 为 {m[2]['maximum_cross_split_jaccard']:.4f}。","",
+              f"两级共排除 {m[2]['dedup_removed_count']} 份重复。哈希互斥检验覆盖相同字节或相同规范化全文；同一人可能有内容不同的简历版本。软件与数据岗位样本需包含三类标题和至少三种领域词，"
               "取四页以内的简历。按文本哈希排序，以 seed=42 洗牌，兼顾有无独立项目标题的版式。测试集先固定，"
               "训练集预留品牌歧义上下文的分层入口。样本代表这一岗位与版式范围。","",
               f"最终保留 {m[2]['pages']} 页。文件哈希跨集交集为 {m[2]['file_hash_overlap']}，文本哈希跨集交集为 "

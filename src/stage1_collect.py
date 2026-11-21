@@ -1,5 +1,6 @@
 """Download the corpus, inventory unique texts, and export a deterministic snapshot."""
 import io
+import hashlib
 import os
 import random
 import re
@@ -86,12 +87,13 @@ def inventory():
     RAW.mkdir(parents=True, exist_ok=True)
     with (RAW/".inventory.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        return _build_index()
+        return near_duplicate_index(_build_index())
 
 
 def _build_index():
     download()
-    signature = sha256(ARCHIVE.read_bytes())
+    with ARCHIVE.open('rb') as source:
+        signature = hashlib.file_digest(source,'sha256').hexdigest()
     if INDEX.exists():
         cached = read_json(INDEX)
         if cached["archive_sha256"] == signature:
@@ -145,6 +147,62 @@ def _build_index():
     return data
 
 
+def english_words(text):
+    return re.findall(r"[a-z0-9]+",normalize_text(text))
+
+
+def shingles(words):
+    return set(zip(*(words[i:] for i in range(5))))
+
+
+def near_duplicate_index(index):
+    """Before splitting, cluster eligible texts by word 5-gram Jaccard >= 0.70."""
+    path = RAW / "near-duplicates-v1.json"
+    if path.exists():
+        stored = read_json(path)
+        if stored["archive_sha256"] == index["archive_sha256"]:
+            return {**index, "near_duplicates":stored["groups"]}
+    rows = index["candidates"]
+    signatures, lengths = [], []
+    with zipfile.ZipFile(ARCHIVE) as archive:
+        for row in rows:
+            words = english_words(" ".join(pdf_pages(archive.read(row["source_name"]))))
+            signatures.append(shingles(words))
+            lengths.append(len(words))
+    parents = list(range(len(rows)))
+    def find(i):
+        while parents[i] != i:
+            parents[i] = parents[parents[i]]
+            i = parents[i]
+        return i
+    links = []
+    for i, left in enumerate(signatures):
+        for j in range(i):
+            right = signatures[j]
+            if min(len(left),len(right)) < .70 * max(len(left),len(right)):
+                continue
+            overlap = len(left & right)
+            ratio = overlap / max(1,len(left)+len(right)-overlap)
+            if ratio >= .70:
+                parents[find(j)] = find(i)
+                links.append(dict(left=rows[i]["text_hash"],right=rows[j]["text_hash"],jaccard=ratio))
+    components = {}
+    for i in range(len(rows)):
+        components.setdefault(find(i),[]).append(i)
+    groups = []
+    for members in components.values():
+        if len(members) < 2:
+            continue
+        ordered = sorted(members,key=lambda i:(-lengths[i],rows[i]["text_hash"]))
+        hashes = [rows[i]["text_hash"] for i in ordered]
+        groups.append(dict(kept=hashes[0],excluded=hashes[1:],
+                           members=[dict(text_hash=rows[i]["text_hash"],source=rows[i]["source_name"],
+                                         words=lengths[i]) for i in ordered],
+                           links=[x for x in links if x["left"] in hashes and x["right"] in hashes]))
+    write_json(path,dict(archive_sha256=index["archive_sha256"],groups=groups))
+    return {**index,"near_duplicates":groups}
+
+
 def cohort(index):
     rows = sorted(index["candidates"], key=lambda r: r["text_hash"])
     rng = random.Random(SEED)
@@ -156,6 +214,19 @@ def cohort(index):
     if len(chosen) < 80:
         chosen += [r for r in rows if r not in chosen][:80-len(chosen)]
     rng.shuffle(chosen)
+    # Use the original seeded draw only to assign sampling priority. Filtering
+    # and same-stratum replacement precede any train/test assignment, so a
+    # removed version does not renumber every other document in the snapshot.
+    excluded = {h for g in index["near_duplicates"] for h in g["excluded"]}
+    rows = [r for r in rows if r["text_hash"] not in excluded]
+    if len(rows) < 80:
+        raise ValueError("Not enough distinct resume families")
+    available = [r for r in rows if r not in chosen]
+    for i,r in enumerate(chosen):
+        if r["text_hash"] in excluded:
+            substitute = next((v for v in available if v["explicit_projects"]==r["explicit_projects"]), available[0])
+            chosen[i] = substitute
+            available.remove(substitute)
     # Reserve the test set first. Enrich only the independent training pool.
     train, test = chosen[:60], chosen[60:]
     reserve = [r for r in rows if r not in test and r["employer_signals"]]
@@ -198,8 +269,19 @@ def collect(pilot=False, size=12):
                              text_path=str(txt.relative_to(ROOT)), pages=pages))
     counts = index["counts"]
     data = dict(seed=SEED, archive_sha256=index["archive_sha256"], corpus_counts=counts,
-                eligible=index["eligible"], cohort_hash=sha256("\n".join(d["split"]+":"+d["text_hash"] for d in docs)),
+                eligible=index["eligible"], near_duplicate_groups=index["near_duplicates"],
+                near_duplicate_threshold=.70, cohort_hash=sha256("\n".join(d["split"]+":"+d["text_hash"] for d in docs)),
                 dedup_removed_count=counts.get("duplicate_file",0)+counts.get("duplicate_text",0),
                 documents=docs, **{s+"_hashes":[d["text_hash"] for d in docs if d["split"] == s] for s in ("train","test")})
+    if not pilot and MANIFEST.exists():
+        # Preserve superseded generated files outside the submission snapshot.
+        current = {doc[key] for doc in docs for key in ("pdf_path","text_path")}
+        for old in read_json(MANIFEST)["documents"]:
+            for path in (SAMPLE_PDFS/old["split"]/(old["resume_id"]+".pdf"), EXTRACTED/(old["resume_id"]+".txt")):
+                path = path.resolve()
+                if path.is_relative_to(ROOT) and str(path.relative_to(ROOT)) not in current and path.is_file():
+                    backup = RAW/"superseded"/path.relative_to(ROOT)
+                    backup.parent.mkdir(parents=True,exist_ok=True)
+                    path.replace(backup)
     write_json(PROCESSED / "pilot_manifest.json" if pilot else MANIFEST, data)
     return data

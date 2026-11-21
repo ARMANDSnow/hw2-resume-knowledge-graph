@@ -209,7 +209,11 @@ def resolve(extractions):
     for surface,by_sense in sorted(evidence.items()):
         if len(by_sense)!=2:
             continue
-        rows=[max(group,key=lambda s:s["scores"][k]["total"]) for k,group in by_sense.items()]
+        def example_rank(row, sense):
+            practice = row["edge_type"] in ("USED_SKILL","APPLIED_SKILL")
+            action = bool(re.search(r"(?i)\b(?:using|used|implemented|performed|built|designed|developed|configured|via)\b",row["evidence_quote"]))
+            return (practice and action, practice, row["scores"][sense]["total"])
+        rows=[max(group,key=lambda row:example_rank(row,k)) for k,group in by_sense.items()]
         if len({row["node_id"] for row in rows})!=2:
             continue
         groups.append(dict(surface=surface,senses=rows))
