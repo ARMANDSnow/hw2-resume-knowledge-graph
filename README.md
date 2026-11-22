@@ -2,7 +2,7 @@
 
 丁宇轩（524031910745）独立完成，贡献比例 100%。本项目把原始英文简历逐页转为带引文的 Neo4j 知识图谱，用训练集标定四维规则，再在独立测试集进行中文岗位查询。
 
-[项目说明](docs/项目说明.md) · [技术说明与实测数据](docs/技术说明文档.md) · [逐项验收 JSON](data/processed/acceptance_report.json) · [12 份试点](data/processed/pilot_audit.md) · [三人对比](data/processed/query_reports/comparison.md) · [五阶段演示视频](demo_video/五阶段演示.mp4)
+[项目说明](docs/项目说明.md) · [技术说明与实测数据](docs/技术说明文档.md) · [逐项验收 JSON](data/processed/acceptance_report.json) · [12 份试点](data/processed/pilot_audit.md) · [三人对比](data/processed/query_reports/comparison.md) · [旧版五阶段演示视频](demo_video/五阶段演示.mp4)
 
 ## 用提交包复核
 
@@ -35,7 +35,7 @@ docker compose up -d
 .venv/bin/python -m src.cli pilot --size 12
 ```
 
-打开试点核对表，对照原始 PDF 核查标题、记录边界、公司与工期、技能归属和消岐两侧语境。提交包内留有这次的逐份复核记录。如果原样重跑后试点报告未变，既有复核记录仍有效。如果更换数据或修改切分，核对新结果后填写实际结论。
+打开试点核对表，对照原始 PDF 核查标题、记录边界、公司与工期、技能归属和消歧两侧语境。提交包内留有这次的逐份复核记录。如果原样重跑后试点报告未变，既有复核记录仍有效。如果更换数据或修改切分，核对新结果后填写实际结论。
 
 ```bash
 .venv/bin/python -m src.cli pilot-review --note '填写本次实际核对结果'
@@ -43,17 +43,25 @@ docker compose up -d
 .venv/bin/python scripts/verify_acceptance.py --publish
 ```
 
-可以分别运行 stage1 到 stage5。stage3 从结构化抽取重新做消岐、共指与入库。stage4 可接受 --focus-ids 后跟三个简历 ID。stats 查询实时子图规模，sync-check 单独复跑固定训练子集实验。
+可以分别运行 stage1 到 stage5。stage3 从结构化抽取重新做消歧、共指与入库。stage4 可接受 --focus-ids 后跟三个简历 ID。stats 查询实时子图规模，sync-check 单独复跑固定训练子集实验。
 
 ## 交互演示
+
+![工作台概览](docs/工作台概览.png)
 
 ```bash
 .venv/bin/streamlit run app.py --server.address 127.0.0.1 --server.port 8501
 ```
 
-打开[五阶段演示](http://localhost:8501)。侧栏选择的简历联动「采 · 数据采集」和「治 · 记录抽取」。在原文阅读区切换 PDF 页码，在抽取页选择记录并核对同条记录的实体与引文。窄屏可用左上角按钮打开侧栏。
+打开[简历图谱](http://localhost:8501)。概览汇总简历、图谱和评分数据，五张流程卡可直接进入对应阶段。也可以在首页输入中文岗位需求，直接进入检索。各页有独立网址，窄屏时用左上角按钮展开导航。
 
-「存 · 图谱探索」默认显示同心轨道。可搜索实体或点击右侧导览，查看相邻节点、关系和原文。切换到「算 · 规则画像」可比较训练快照与候选人评级。在「用 · 岗位检索」切换主查询、零命中示例或自定义需求，查看严格命中、近似候选缺项及三人对比。展开查询详情可复制 Cypher 到 Neo4j Browser 独立复核。[项目与实证技能子图](docs/Neo4j项目技能子图.png)
+1. **采 · 原文**（`/source`）选择一份简历，按页阅读并与原始 PDF 对照。
+2. **治 · 抽取**（`/extract`）沿用所选简历。点一段经历，同时查看图上的关联、原文中的实体和支撑关系的引文。
+3. **存 · 图谱**（`/graph`）在训练集、测试集和全部简历间切换，搜索 IBM 或点选节点查看相邻关系。在「消歧」并读同名词的两种含义，在「归并」查看别名，在「分布与审计」复核统计与例外。[项目与技能子图](docs/Neo4j项目技能子图.png)
+4. **算 · 评分**（`/rules`）选择评估维度，展开规则查看门槛和原句。「训练快照对比」展示增加样本后门槛的变化，「重点简历画像」可切换候选人并下载评分报告。
+5. **用 · 检索**（`/search`）输入需求，或点击示例填入，再提交检索。先看满足全部条件的人数，再比较候选人、核对缺项与原文，或展开查询详情复制 Cypher。返回原文页时可以继续查看所选候选人。
+
+数据库未连接时，可查看随项目保存的常规岗位和零命中示例结果。自定义检索需要本机 Neo4j 服务和已入库的图谱。
 
 自定义检索可输入「招聘高级软件开发工程师，本科及以上，掌握 Python 和 SQL，2年以上工作经验，有项目经验优先。」岗位抬头仅说明招聘目标。学历、技能、年限和排序偏好分别写在后续条件分句中。
 
@@ -64,11 +72,11 @@ RETURN p LIMIT 30
 
 ## 目录与打包
 
-- src/ 实现「采、治、存、算、用」及 CLI，app.py 为五标签页入口。
+- src/ 实现「采、治、存、算、用」及 CLI。app.py 负责页面导航，src/pages_/ 包含概览和五个阶段的页面。
 - data/sample_pdfs/、data/extracted_txt/ 保存 60/20 固定 PDF、文本与页边界。先在整个归档做双哈希去重，再在符合采样条件的简历中按连续五词集合相似度排除近重复版本。
 - data/processed/ 保存模型窗口缓存、原始/规范图谱、试点核对记录、16 条规则、同步实验、重点画像及查询结果。
 - docs/技术说明文档.md 由实际运行数据生成。scripts/verify_acceptance.py 自检，scripts/technical_report.py 渲染说明书。
-- demo_video/五阶段演示.mp4 为这次真实 Streamlit 操作录屏。更新视频后再次打包即可。
+- demo_video/五阶段演示.mp4 保留旧版界面的操作录屏。新版录屏由项目作者补录，替换后可重新打包。
 
 ```bash
 bash scripts/package_submission.sh

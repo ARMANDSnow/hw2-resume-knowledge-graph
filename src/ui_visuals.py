@@ -7,24 +7,30 @@ import math
 import re
 from collections import Counter
 
-from .ui_theme import NODE_COLORS, NODE_LABELS_ZH
+from .ui_graph import IFRAME_THEME, _build_graph_payload, render_force_graph_html  # noqa: F401
+from .ui_theme import NODE_LABELS_ZH
 
 
 def _safe_json(obj) -> str:
     return json.dumps(obj, ensure_ascii=False).replace("<", "\\u003c")
 
 
-_BASE = """
-:root{color-scheme:light;--ink:#24332b;--muted:#52645b;--green:#235a46;--blue:#386889;--ochre:#8b5d18;--line:#dadfd8;--wash:#f3f5f0}
-*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%}body{background:#faf9f6;color:var(--ink);font:14px/1.45 'Inter',-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif}
-main{width:100%;height:100%;overflow:auto;background:white;border:1px solid var(--line);border-radius:8px;padding:16px}
-h2,h3,p,figure{margin:0}h2{font-size:16px;line-height:1.35}h3{font-size:14px}
-header,.toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}header{margin-bottom:14px}
-.controls,.options{display:flex;align-items:center;flex-wrap:wrap;gap:6px}button,input,select{font:inherit;color:inherit}
-button,select,input{border:1px solid #b8c6bb;border-radius:5px;background:#fff;min-height:32px;padding:4px 9px;font-size:12px}
-button{cursor:pointer}button:hover{background:#edf2ec;border-color:#7a9685}button[aria-pressed=true]{background:var(--green);border-color:var(--green);color:#fff}
-button:focus-visible,select:focus-visible,input:focus-visible,canvas:focus-visible,summary:focus-visible,[tabindex]:focus-visible{outline:3px solid #336a96;outline-offset:2px}
-small,.muted{color:var(--muted);font-size:12px}code,.numeric{font:500 12px/1.4 'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+_BASE = IFRAME_THEME + """
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%}
+body{background:var(--paper);color:var(--ink);font:14px/1.5 var(--sans)}
+main{width:100%;height:100%;overflow:auto;background:var(--card);border-radius:12px;padding:16px}
+h2,h3,p,figure{margin:0}h2{font:500 18px/1.4 var(--serif)}h3{font:600 14px/1.4 var(--sans)}
+header,.toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+header{margin-bottom:14px}
+.controls,.options{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+button,input,select{font:inherit;color:inherit}
+button,select,input{border:1px solid var(--line-strong);border-radius:8px;background:var(--card);min-height:34px;padding:4px 10px;font-size:12px}
+button{cursor:pointer}
+button:hover{background:var(--wash)}
+button[aria-pressed=true]{background:var(--accent-soft);border-color:#dfac97;color:var(--accent-ink)}
+:where(button,select,input,canvas,summary,[tabindex]):focus-visible{outline:2px solid var(--accent-ink);outline-offset:2px}
+small,.muted{color:var(--muted);font-size:12px}code,.numeric{font:500 12px/1.4 var(--mono);font-variant-numeric:tabular-nums}
 code{overflow-wrap:anywhere}.empty{color:var(--muted);padding:16px 0}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 @media(max-width:520px){main{padding:11px}header{margin-bottom:9px}button,select,input{min-height:34px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;transition:none!important;scroll-behavior:auto!important}}
@@ -49,11 +55,11 @@ def render_funnel_html(manifest: dict) -> str:
     near = sum(len(g.get("excluded", [])) for g in manifest.get("near_duplicate_groups", []))
     splits = Counter(d.get("split") for d in manifest.get("documents", []))
     stages = [
-        ("归档 PDF", total, "原始数据集"),
-        ("哈希去重", total - dup_file - dup_text, f"文件重复 {dup_file:,} · 文本重复 {dup_text:,}"),
-        ("样本筛选", eligible, "保留符合质量、段落与岗位范围的简历"),
-        ("近重复过滤", eligible - near, f"排除 {near:,} 份近重复简历"),
-        ("固定快照", splits["train"] + splits["test"], f'训练 {splits["train"]} · 测试 {splits["test"]}'),
+        ("原始简历", total, "原始数据集"),
+        ("剔除完全重复", total - dup_file - dup_text, f"文件重复 {dup_file:,} · 文本重复 {dup_text:,}"),
+        ("样本筛选", eligible, "按文本质量、段落和岗位筛选"),
+        ("剔除相似版本", eligible - near, f"排除 {near:,} 份近重复简历"),
+        ("最终样本", splits["train"] + splits["test"], f'训练 {splits["train"]} · 测试 {splits["test"]}'),
     ]
     cards, streams, guides, stations = [], [], [], []
     half_widths = [28 * count / max(total, 1) for _, count, _ in stages]
@@ -86,30 +92,30 @@ def render_funnel_html(manifest: dict) -> str:
             streams.append(f'<path class="strand" d="{strand}"/>')
     chart = ('<svg class="flow" viewBox="0 0 1000 84" preserveAspectRatio="none" aria-hidden="true"><defs>'
              '<linearGradient id="river-ink" gradientUnits="userSpaceOnUse" x1="100" x2="900">'
-             '<stop stop-color="#aecbb4"/><stop offset=".5" stop-color="#548772"/><stop offset="1" stop-color="#285c48"/></linearGradient>'
-             '<linearGradient id="exit-ink"><stop stop-color="#d5c5a1"/><stop offset="1" stop-color="#e4d5b5" stop-opacity=".24"/></linearGradient>'
+             '<stop stop-color="#e7b29a"/><stop offset=".5" stop-color="#cd8160"/><stop offset="1" stop-color="#a95637"/></linearGradient>'
+             '<linearGradient id="exit-ink"><stop stop-color="#c3bba4"/><stop offset="1" stop-color="#d8d2bf" stop-opacity=".24"/></linearGradient>'
              '<clipPath id="sweep"><rect id="reveal" width="1000" height="84"/></clipPath>'
              '<g id="streams">' + ''.join(streams) + '</g></defs>' + ''.join(guides)
              + '<use href="#streams" opacity=".18"/><use href="#streams" clip-path="url(#sweep)"/>'
              + ''.join(stations) + '</svg>')
     css = """
 main{display:flex;flex-direction:column;justify-content:center;padding:16px 20px}
-header{margin-bottom:7px}#replay{display:inline-flex;gap:5px;align-items:center;color:var(--green);border-radius:18px;padding:3px 12px}
-#replay svg{width:14px;height:14px}.flow{width:100%;height:76px;display:block;background:linear-gradient(#fafbf7,#f5f8f3);border-radius:6px 6px 0 0;flex:none}
-.guide{stroke:#cdd8ca;stroke-width:1;stroke-dasharray:2 4}.strand{fill:none;stroke:#44745c;stroke-opacity:.48;stroke-width:.85;vector-effect:non-scaling-stroke}
-.halo{fill:#518f70;opacity:0}.pin{fill:#fff;stroke:#638972;stroke-width:1.6}
-.station.done .pin,.station.active .pin{fill:var(--green);stroke:white}.station.active .halo{opacity:.22;animation:breathe 1s ease-out infinite}
+header{margin-bottom:7px}#replay{display:inline-flex;gap:5px;align-items:center;color:var(--accent-ink);border-radius:18px;padding:3px 12px}
+#replay svg{width:14px;height:14px}.flow{width:100%;height:76px;display:block;background:var(--paper);border-radius:6px 6px 0 0;flex:none}
+.guide{stroke:var(--line-strong);stroke-width:1;stroke-dasharray:2 4}.strand{fill:none;stroke:#8c432b;stroke-opacity:.48;stroke-width:.85;vector-effect:non-scaling-stroke}
+.halo{fill:var(--accent);opacity:0}.pin{fill:#fff;stroke:var(--accent-ink);stroke-width:1.6}
+.station.done .pin,.station.active .pin{fill:var(--accent-ink);stroke:var(--card)}.station.active .halo{opacity:.22;animation:breathe 1s ease-out infinite}
 @keyframes breathe{from{transform:scale(.55);opacity:.36}to{transform:scale(1.35);opacity:0}}
-ol{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));padding:0;list-style:none;margin:0;background:#fafbf8}
-li{position:relative;min-width:0;padding:11px 10px 12px;border-top:2px solid #cbd9cc;transition:background .25s}
-li+li{border-left:1px solid #dde5da}li.active{background:#e6f0e5}li.done,li.active{border-top-color:#638d71}
-li strong{display:block;color:var(--green);font:650 clamp(22px,2.7vw,30px)/1.28 'Inter',system-ui,sans-serif;font-variant-numeric:tabular-nums;margin:3px 0}
+ol{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));padding:0;list-style:none;margin:0;background:var(--paper)}
+li{position:relative;min-width:0;padding:11px 10px 12px;border-top:2px solid var(--line-strong);transition:background .25s}
+li+li{border-left:1px solid var(--line)}li.active{background:var(--accent-soft)}li.done,li.active{border-top-color:var(--accent)}
+li strong{display:block;color:var(--accent-ink);font:500 clamp(22px,2.7vw,30px)/1.28 var(--mono);font-variant-numeric:tabular-nums;margin:3px 0}
 li span,footer{font-size:12px;color:var(--muted)}footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:5px 10px;margin-top:9px}
-.legend{display:flex;gap:12px}.legend span{display:inline-flex;align-items:center;gap:5px}.legend i{width:13px;height:3px;border-radius:3px;background:#63947b}.legend .exit{background:#c8b690}
+.legend{display:flex;gap:12px}.legend span{display:inline-flex;align-items:center;gap:5px}.legend i{width:13px;height:3px;border-radius:3px;background:var(--accent)}.legend .exit{background:#b1a58b}
 #status{font-variant-numeric:tabular-nums}
 @media(max-width:680px){main{padding:10px;justify-content:flex-start}header{margin-bottom:4px}.flow{height:39px}ol{display:block}
-li,li+li{display:grid;align-items:center;grid-template-columns:70px 53px 1fr;gap:5px;padding:4px 6px;border:0;border-left:2px solid #d3dfd3;border-bottom:1px solid #e2e9df}
-li.done,li.active{border-left-color:#638d71}li h3,li span{font-size:11px}li strong{font-size:17px;margin:0}footer{font-size:11px;margin-top:6px}.legend{gap:7px}}
+li,li+li{display:grid;align-items:center;grid-template-columns:70px 53px 1fr;gap:5px;padding:4px 6px;border:0;border-left:2px solid var(--line-strong);border-bottom:1px solid var(--line)}
+li.done,li.active{border-left-color:var(--accent)}li h3,li span{font-size:11px}li strong{font-size:17px;margin:0}footer{font-size:11px;margin-top:6px}.legend{gap:7px}}
 """
     script = """
 const cards = [...document.querySelectorAll('li')], stations = [...document.querySelectorAll('.station')];
@@ -163,11 +169,9 @@ motion.addEventListener('change', () => { if (motion.matches) finish(); });
                '<path d="M3 6a5 5 0 1 1 .4 5M3 2.5V6h3.5"/></svg>重播筛选</button></header>'
                + chart + '<ol>' + ''.join(cards) + '</ol>'
                + '<footer><div class="legend"><span><i></i>保留</span><span><i class="exit"></i>筛出</span></div>'
-               + f'<span id="status">固定快照 · 留存 {final_share:.2%}</span></footer>')
+               + f'<span id="status">最终样本 · 留存 {final_share:.2%}</span></footer>')
     return _document("样本筛选", content, css, script)
 
-
-from .ui_graph import _build_graph_payload, render_force_graph_html  # noqa: E402,F401
 
 
 def _esc(value):
@@ -189,7 +193,7 @@ document.querySelector('#replay').addEventListener('click',replay);
 
 def render_disambiguation_animator_html(groups: list[dict]) -> str:
     if not groups:
-        return _document("消岐证据", '<p class="empty">当前没有双边证据组。</p>')
+        return _document("同名词与原句", '<p class="empty">暂无同时包含两种含义和原句的例子。</p>')
     buttons, panels = [], []
     for index, group in enumerate(groups):
         surface = _esc(group["surface"])
@@ -198,7 +202,7 @@ def render_disambiguation_animator_html(groups: list[dict]) -> str:
         proofs, targets = [], []
         for position, sense in enumerate(group["senses"][:2], 1):
             target = _esc(sense["name"])
-            label = _esc(sense["label"])
+            label = _esc(NODE_LABELS_ZH.get(sense["label"], sense["label"]))
             targets.append(f'<div class="target"><small>{label}</small><b>{target}</b></div>')
             scores, components = [], []
             for name, values in sense.get("scores", {}).items():
@@ -208,10 +212,10 @@ def render_disambiguation_animator_html(groups: list[dict]) -> str:
                 parts = ''.join(f'<td>{float(values.get(signal, 0)):.3f}</td>'
                                 for signal in ("tfidf_cosine", "section_prior", "record_coherence"))
                 components.append(f'<tr><th scope="row">{_esc(name)}</th>{parts}</tr>')
-            breakdown = ('<details><summary>三项得分明细</summary><table><thead><tr><th>义项</th>'
-                         '<th>词窗</th><th>段落</th><th>共现</th></tr></thead><tbody>'
+            breakdown = ('<details><summary>查看三个判断依据的得分</summary><table><thead><tr><th>含义</th>'
+                         '<th>上下文</th><th>所在段落</th><th>同时出现</th></tr></thead><tbody>'
                          + ''.join(components) + '</tbody></table></details>')
-            proofs.append(f'<article><small>义项 {position} · {label}</small><h3>{target}</h3>'
+            proofs.append(f'<article><small>含义 {position} · {label}</small><h3>{target}</h3>'
                           f'<p class="edge"><code>{_esc(sense["edge_source"])} → '
                           f'{_esc(sense["edge_type"])} → {_esc(sense["node_id"])}</code></p>'
                           f'<blockquote>{_esc(sense.get("evidence_quote", ""))}</blockquote>'
@@ -220,15 +224,15 @@ def render_disambiguation_animator_html(groups: list[dict]) -> str:
         panels.append(f'<section id="group-{index}"' + (' hidden' if index else '') + '>'
                       + f'<figure><strong>{surface}</strong><svg viewBox="0 0 64 60" preserveAspectRatio="none" aria-hidden="true">'
                         '<path d="M0 30 H20 Q27 30 32 22 L43 10 H64 M20 30 Q27 30 32 38 L43 50 H64" '
-                        'fill="none" stroke="#829a87" stroke-width="2"/></svg><div class="targets">'
+                        'fill="none" stroke="#b3a999" stroke-width="2"/></svg><div class="targets">'
                       + ''.join(targets) + '</div></figure><div class="proofs">' + ''.join(proofs) + '</div></section>')
     content = ('<header><div class="options" role="group" aria-label="选择同名词">'
-               + ''.join(buttons) + '</div><button id="replay">重播分流</button></header>' + ''.join(panels))
+               + ''.join(buttons) + '</div><button id="replay">重播动画</button></header>' + ''.join(panels))
     css = """
-figure{display:grid;grid-template-columns:minmax(55px,20%) minmax(24px,11%) 1fr;align-items:center;background:#f5f7f2;padding:10px 14px;border-radius:5px}
-figure strong{font-size:18px;color:var(--green);text-align:center}figure svg{width:100%;height:62px}.targets{display:grid;gap:5px}
-.target{border-left:3px solid #386889;padding:2px 10px;background:#fff;display:flex;align-items:baseline;gap:8px;overflow-wrap:anywhere}.target:nth-child(2){border-color:#8b641d}
-.proofs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin-top:14px;gap:16px}article{min-width:0}article+article{border-left:1px solid var(--line);padding-left:15px}article h3{overflow-wrap:anywhere}blockquote{margin:6px 0 1px;padding:7px 9px;border-left:2px solid #c5d3c4;background:#f6f7f4;color:#36473d;font-size:13px;overflow-wrap:anywhere}.edge{color:var(--blue);line-height:1.2;margin:3px 0}.score{display:grid;grid-template-columns:minmax(65px,1fr) minmax(35px,1fr) 44px;align-items:center;gap:5px;font-size:12px;overflow-wrap:anywhere}.score:first-of-type{margin-top:7px}.score meter{width:100%;accent-color:var(--green)}
+figure{display:grid;grid-template-columns:minmax(55px,20%) minmax(24px,11%) 1fr;align-items:center;background:var(--wash);padding:10px 14px;border-radius:5px}
+figure strong{font-size:18px;color:var(--accent-ink);text-align:center}figure svg{width:100%;height:62px}.targets{display:grid;gap:5px}
+.target{border-left:3px solid var(--slate);padding:2px 10px;background:#fff;display:flex;align-items:baseline;gap:8px;overflow-wrap:anywhere}.target:nth-child(2){border-color:var(--terra)}
+.proofs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin-top:14px;gap:16px}article{min-width:0}article+article{border-left:1px solid var(--line);padding-left:15px}article h3{overflow-wrap:anywhere}blockquote{margin:6px 0 1px;padding:7px 9px;border-left:2px solid #dbb8a7;background:var(--paper);color:var(--body);font:14px/1.55 var(--serif);overflow-wrap:anywhere}.edge{color:var(--slate);line-height:1.2;margin:3px 0}.score{display:grid;grid-template-columns:minmax(65px,1fr) minmax(35px,1fr) 44px;align-items:center;gap:5px;font-size:12px;overflow-wrap:anywhere}.score:first-of-type{margin-top:7px}.score meter{width:100%;accent-color:var(--accent-ink)}
 .play .target{animation:branch 650ms ease-out both}.play .target:nth-child(2){animation-delay:100ms}@keyframes branch{from{opacity:.18;transform:translate(-12px,-2px)}to{opacity:1;transform:none}}
 details{margin-top:8px;color:var(--muted);font-size:12px}summary{cursor:pointer}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{text-align:left;border-bottom:1px solid var(--line);padding:3px 4px}
 @media(max-width:570px){.proofs{grid-template-columns:1fr;gap:10px}article+article{padding:8px 0 0;border:0;border-top:1px solid var(--line)}figure{padding:7px 5px}.target{gap:4px;flex-wrap:wrap}}
@@ -241,7 +245,7 @@ buttons.forEach((button,index)=>button.onclick=()=>{
   replay();
 });
 """
-    return _document("消岐证据", content, css, script)
+    return _document("同名词与原句", content, css, script)
 
 
 def render_coref_merge_animator_html(coref_audit: dict) -> str:
@@ -258,22 +262,22 @@ def render_coref_merge_animator_html(coref_audit: dict) -> str:
                         f'<small>相似度 {control.get("similarity", 0):.2f}</small></li>')
     before = coref_audit.get("nodes_before", 0)
     after = coref_audit.get("nodes_after", 0)
-    content = (f'<header><div><h2>共指归并</h2><small>节点数 {before:,} → {after:,}</small></div>'
-               '<button id="replay">重播归并</button></header><div class="ledger"><section><h3>异名归并</h3><ul>'
-               + ''.join(aliases) + '</ul></section><section><h3>保留不同实体</h3><ul>'
+    content = (f'<header><div><h2>别名归并</h2><small>节点数 {before:,} → {after:,}</small></div>'
+               '<button id="replay">重播归并</button></header><div class="ledger"><section><h3>合并为同一项</h3><ul>'
+               + ''.join(aliases) + '</ul></section><section><h3>保留为不同项</h3><ul>'
                + ''.join(controls) + '</ul></section></div>')
     css = """
-.ledger{display:grid;grid-template-columns:1.1fr 1fr;gap:20px}.ledger section{min-width:0}h3{color:var(--green)}ul{list-style:none;margin:5px 0 0;padding:0}li{display:flex;flex-wrap:wrap;align-items:baseline;gap:3px 7px;padding:5px 0;border-bottom:1px solid var(--line);font-size:12px;overflow-wrap:anywhere}li small{margin-left:auto;font-size:11px}.arrow{color:var(--green);font-weight:700}.guard{color:var(--ochre);font-weight:750}.variant{color:var(--muted)}
+.ledger{display:grid;grid-template-columns:1.1fr 1fr;gap:20px}.ledger section{min-width:0}h3{color:var(--accent-ink)}ul{list-style:none;margin:5px 0 0;padding:0}li{display:flex;flex-wrap:wrap;align-items:baseline;gap:3px 7px;padding:5px 0;border-bottom:1px solid var(--line);font-size:12px;overflow-wrap:anywhere}li small{margin-left:auto;font-size:11px}.arrow{color:var(--accent-ink);font-weight:700}.guard{color:var(--terra);font-weight:750}.variant{color:var(--muted)}
 .play .variant{animation:merge 850ms ease-out both}.play .guard{animation:separate 700ms ease-out both}@keyframes merge{from{transform:translateX(-8px);opacity:.25}to{transform:none;opacity:1}}@keyframes separate{from{transform:scale(.5)}70%{transform:scale(1.4)}to{transform:none}}
 @media(max-width:560px){.ledger{grid-template-columns:1fr;gap:12px}}
 """
-    return _document("共指归并", content, css, _REPLAY)
+    return _document("别名归并", content, css, _REPLAY)
 
 
 def render_interactive_radar_html(series: list[dict], title: str = "四维能力雷达图", height: int = 360) -> str:
     dims = (("EDU", "教育"), ("EXP", "经历"), ("SKL", "技能"), ("POT", "潜力"))
     # The hue and line style both identify a candidate on overlapping polygons.
-    palette = ["#246044", "#396988", "#925721", "#764d79"]
+    palette = ["#a75438", "#4f7087", "#626e4f", "#836589"]
     dashes = ["none", "6 3", "2 3", "8 2 2 2"]
     def pt(axis, value):
         angle = math.pi * (axis / 2 - .5)
@@ -282,14 +286,14 @@ def render_interactive_radar_html(series: list[dict], title: str = "四维能力
         return " ".join(f"{x:.2f},{y:.2f}" for x, y in (pt(i, v) for i, v in enumerate(values)))
     marks = []
     for value in (25, 50, 75, 100):
-        marks.append(f'<polygon fill="none" stroke="#bfccbf" points="{points([value]*4)}"/>'
-                     f'<text x="191" y="{pt(0,value)[1]+4:.1f}" fill="#52645b" font-size="10">{value}</text>')
+        marks.append(f'<polygon fill="none" stroke="var(--line-strong)" points="{points([value]*4)}"/>'
+                     f'<text x="191" y="{pt(0,value)[1]+4:.1f}" fill="var(--muted)" font-size="10">{value}</text>')
     for i, (_, label) in enumerate(dims):
         x, y = pt(i, 100)
         tx, ty = pt(i, 121)
         anchor = ["middle", "start", "middle", "end"][i]
-        marks.append(f'<line x1="185" y1="122" x2="{x}" y2="{y}" stroke="#c4d0c3"/>'
-                     f'<text x="{tx}" y="{ty+4}" text-anchor="{anchor}" fill="#24332b" font-size="13">{label}</text>')
+        marks.append(f'<line x1="185" y1="122" x2="{x}" y2="{y}" stroke="var(--line-strong)"/>'
+                     f'<text x="{tx}" y="{ty+4}" text-anchor="{anchor}" fill="var(--ink)" font-size="13">{label}</text>')
     buttons = []
     summary = []
     for i, candidate in enumerate(series):
@@ -355,16 +359,16 @@ def render_sync_morph_html(sync_report: dict) -> str:
             delta = "、".join(candidate.get("changed_hit_rules") or []) or ("等级边界变化" if candidate.get("changed") else "无变化")
             candidates.append(f'<tr><th>{_esc(candidate["resume_id"])}</th>{cells}</tr><tr><td colspan="5" class="delta">{_esc(delta)}</td></tr>')
         panels.append(f'<section id="data-{mode}"' + (' hidden' if mode == "b" else '') + '><div class="grid">'
-                      f'<div><h3>发生变化的阈值 <small>{len(changes)} 条</small></h3><ul>{"".join(rows)}</ul></div>'
-                      '<div><h3>固定候选人 <small>得分 / 等级</small></h3><table><thead><tr><th>简历</th>'
+                      f'<div><h3>阈值发生变化的规则 <small>{len(changes)} 条</small></h3><ul>{"".join(rows)}</ul></div>'
+                      '<div><h3>同一批候选人 <small>得分 / 等级</small></h3><table><thead><tr><th>简历</th>'
                       '<th>教育</th><th>经历</th><th>技能</th><th>潜力</th></tr></thead><tbody>'
                       + ''.join(candidates) + '</tbody></table></div></div></section>')
     content = ('<header><h2>训练快照对比</h2><div class="controls">' + ''.join(buttons)
                + '<button id="auto" aria-pressed="false">自动切换</button></div></header>' + ''.join(panels))
     css = """
 .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:18px}.grid>div{min-width:0}
-ul{margin:5px 0 0;padding:0;list-style:none}li{display:grid;grid-template-columns:1fr auto auto;gap:3px 9px;align-items:center;padding:4px 0}li b,th{font-size:12px}li strong{color:var(--green);font-variant-numeric:tabular-nums}li i{grid-column:1/-1;background:#e5ebe3;height:4px}li u{display:block;background:#5c8365;height:4px}
-table{width:100%;border-collapse:collapse;text-align:left;margin-top:5px;table-layout:fixed}th,td{padding:4px 2px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}th:first-child{width:35%}td{font-size:12px}thead th{color:var(--muted);border-bottom:1px solid var(--line)}td b{color:var(--green)}.delta{color:var(--muted);border-bottom:1px solid var(--line);font-size:11px}
+ul{margin:5px 0 0;padding:0;list-style:none}li{display:grid;grid-template-columns:1fr auto auto;gap:3px 9px;align-items:center;padding:4px 0}li b,th{font-size:12px}li strong{color:var(--accent-ink);font-variant-numeric:tabular-nums}li i{grid-column:1/-1;background:var(--wash);height:4px}li u{display:block;background:var(--accent);height:4px}
+table{width:100%;border-collapse:collapse;text-align:left;margin-top:5px;table-layout:fixed}th,td{padding:4px 2px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}th:first-child{width:35%}td{font-size:12px}thead th{color:var(--muted);border-bottom:1px solid var(--line)}td b{color:var(--accent-ink)}.delta{color:var(--muted);border-bottom:1px solid var(--line);font-size:11px}
 @media(max-width:640px){.grid{grid-template-columns:1fr;gap:12px}}
 """
     script = """

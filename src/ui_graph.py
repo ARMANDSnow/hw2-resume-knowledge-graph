@@ -1,10 +1,10 @@
 """Domain-aware Knowledge Graph Studio (LightRAG x Quartz x ReactFlow inspired).
 
 Supports two tailored views on the same offline HTML5 Canvas engine:
-- Single-resume extraction view (Tab 2): Layered semantic hierarchy separating
+- Single-resume extraction view (/extract): Layered semantic hierarchy separating
   Candidate -> Atomic Records (Work/Project/Education) -> Grounded Entities
   (Company/JobTitle/University/Evidenced Skills) vs. Listed-only Skills.
-- Global KG exploration view (Tab 3): Concentric rings place shared hubs inside
+- Global KG exploration view (/graph): Concentric rings place shared hubs inside
   candidates and their records. Clustered and force layouts are also available.
 """
 from __future__ import annotations
@@ -245,36 +245,40 @@ def _build_graph_payload(
     }
 
 
-_GRAPH_CSS = """
+IFRAME_THEME = """
 :root{
   color-scheme:light;
-  --paper:#FAF9F5;--card:#ffffff;--glass:rgba(255,255,255,.92);--wash:#F3F1EA;
+  --paper:#FAF9F5;--card:#ffffff;--glass:rgba(255,255,255,.92);--wash:#F0EEE6;
   --ink:#1F1E1D;--body:#3D3B36;--muted:#6B6963;--line:#E8E6DC;--line-strong:#D6D3C7;
-  --teal:#C96442;--teal-soft:#F5E6DF;--terra:#A0662E;--terra-soft:#F4EADC;
+  --accent:#C96442;--accent-ink:#98482F;--accent-soft:#F5E6DF;--terra:#A0662E;--terra-soft:#F4EADC;
   --plum:#806A93;--plum-soft:#EFEAF2;--slate:#4F6B82;--slate-soft:#E8EDF1;
   --shadow:0 4px 18px rgba(31,30,29,.08),0 1px 3px rgba(31,30,29,.05);
-  --shadow-sm:0 2px 8px rgba(31,30,29,.06);
   --sans:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;
   --serif:'Source Han Serif SC','Songti SC',Georgia,serif;
   --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
 }
+"""
+
+
+_GRAPH_CSS = IFRAME_THEME + """
 *{box-sizing:border-box}
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#FAF9F5;color:var(--ink);font:13px/1.45 var(--sans)}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--paper);color:var(--ink);font:13px/1.45 var(--sans)}
 .studio{
   position:relative;width:100%;height:100%;display:grid;
   grid-template-columns:minmax(0,1fr) 292px;
-  background:var(--paper);border:1px solid var(--line);border-radius:14px;overflow:hidden;
+  background:var(--card);border-radius:12px;overflow:hidden;
   transition:grid-template-columns .22s ease;
 }
 .studio.drawer-closed{grid-template-columns:minmax(0,1fr) 0px}
-.stage{position:relative;min-width:0;min-height:0;overflow:hidden;background:var(--paper)}
+.stage{position:relative;min-width:0;min-height:0;overflow:hidden;display:grid;
+  grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;background:var(--paper)}
 canvas{width:100%;height:100%;display:block;touch-action:none;cursor:grab}
 canvas.grabbing{cursor:grabbing}
 canvas.pointer{cursor:pointer}
 
-/* Floating LightRAG / Quartz Top HUD */
+/* Graph toolbar */
 .hud-top{
-  position:absolute;top:12px;left:12px;right:12px;z-index:10;
+  position:relative;z-index:10;padding:9px 10px;border-bottom:1px solid var(--line);background:var(--card);
   display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;
   pointer-events:none;
 }
@@ -285,7 +289,7 @@ canvas.pointer{cursor:pointer}
 .hud-pill{
   display:inline-flex;align-items:center;gap:7px;
   background:var(--glass);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
-  border:1px solid var(--line);border-radius:9px;padding:4px 10px;box-shadow:var(--shadow-sm);
+  padding:2px 4px;
 }
 .hud-title{font:600 13px/1.2 var(--serif);color:var(--ink);letter-spacing:-.01em}
 .hud-stat{font:500 11.5px/1 var(--mono);color:var(--muted);padding-left:6px;border-left:1px solid var(--line)}
@@ -294,14 +298,14 @@ canvas.pointer{cursor:pointer}
 .seg{
   display:inline-flex;align-items:center;padding:3px;gap:2px;
   background:var(--glass);backdrop-filter:blur(10px);
-  border:1px solid var(--line);border-radius:9px;box-shadow:var(--shadow-sm);
+  border:1px solid var(--line);border-radius:8px;
 }
 .seg button{
   border:0;background:transparent;color:var(--muted);font:600 11.5px/1 var(--sans);
   padding:5px 9px;border-radius:6px;cursor:pointer;transition:all .16s ease;white-space:nowrap;
 }
 .seg button:hover{color:var(--ink);background:var(--wash)}
-.seg button[aria-pressed=true]{background:var(--teal);color:#fff;box-shadow:0 1px 3px rgba(201,100,66,.24)}
+.seg button[aria-pressed=true]{background:var(--accent-soft);color:var(--accent-ink)}
 
 /* Search & Filter Chips */
 .search-wrap{position:relative;display:inline-flex;align-items:center}
@@ -309,12 +313,12 @@ canvas.pointer{cursor:pointer}
 .search-input{
   width:176px;height:31px;padding:0 28px 0 27px;border:1px solid var(--line);border-radius:9px;
   background:var(--glass);backdrop-filter:blur(10px);color:var(--ink);font:12px var(--sans);
-  box-shadow:var(--shadow-sm);outline:none;transition:border-color .15s,width .18s;
+  outline:none;transition:border-color .15s,width .18s;
 }
-.search-input:focus{border-color:var(--teal);width:214px;background:#fff}
+.search-input:focus{border-color:var(--accent-ink);width:214px;background:#fff}
 .search-badge{
-  position:absolute;right:7px;font:600 10px/1 var(--mono);color:var(--teal);
-  background:var(--teal-soft);padding:2px 5px;border-radius:4px;display:none;
+  position:absolute;right:7px;font:600 10px/1 var(--mono);color:var(--accent-ink);
+  background:var(--accent-soft);padding:2px 5px;border-radius:4px;display:none;
 }
 .search-badge.show{display:inline-block}
 .search-drop{
@@ -332,22 +336,22 @@ canvas.pointer{cursor:pointer}
 .chip-btn{
   display:inline-flex;align-items:center;gap:5px;height:31px;padding:0 10px;
   background:var(--glass);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:9px;
-  color:var(--body);font:600 11.5px/1 var(--sans);cursor:pointer;box-shadow:var(--shadow-sm);
+  color:var(--body);font:600 11.5px/1 var(--sans);cursor:pointer;
   transition:all .15s ease;white-space:nowrap;
 }
 .chip-btn:hover{border-color:var(--line-strong);background:#fff;color:var(--ink)}
-.chip-btn[aria-pressed=true]{background:var(--teal-soft);border-color:#E2B9A6;color:var(--teal)}
+.chip-btn[aria-pressed=true]{background:var(--accent-soft);border-color:#E2B9A6;color:var(--accent-ink)}
 .chip-btn .dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.65}
 
-/* Floating Bottom-Left Zoom & Action Dock (LightRAG / ReactFlow Style) */
+/* Canvas navigation */
 .hud-bottom{
-  position:absolute;left:12px;right:12px;bottom:12px;z-index:10;
-  display:flex;align-items:flex-end;justify-content:space-between;gap:10px;pointer-events:none;
+  padding:6px 9px;background:var(--card);border-top:1px solid var(--line);
+  display:flex;align-items:center;justify-content:space-between;gap:8px;pointer-events:none;
 }
 .dock{
   display:inline-flex;align-items:center;gap:2px;padding:3px;
   background:var(--glass);backdrop-filter:blur(10px);
-  border:1px solid var(--line);border-radius:9px;box-shadow:var(--shadow-sm);pointer-events:auto;
+  border:1px solid var(--line);border-radius:8px;pointer-events:auto;
 }
 .dock button{
   display:inline-flex;align-items:center;justify-content:center;gap:4px;
@@ -355,11 +359,11 @@ canvas.pointer{cursor:pointer}
   color:var(--body);font:600 11.5px var(--sans);cursor:pointer;transition:all .14s;
 }
 .dock button:hover{background:var(--wash);color:var(--ink)}
-.dock button[aria-pressed=true]{background:var(--teal-soft);color:var(--teal)}
+.dock button[aria-pressed=true]{background:var(--accent-soft);color:var(--accent-ink)}
 .dock .sep{width:1px;height:16px;background:var(--line);margin:0 2px}
 .dock svg{width:14px;height:14px;flex:none}
 
-/* Floating Entity Legend Pills */
+/* Node type filters */
 .legend{
   display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px;max-width:calc(100% - 250px);
   pointer-events:auto;
@@ -367,7 +371,7 @@ canvas.pointer{cursor:pointer}
 .leg-btn{
   display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border-radius:999px;
   background:var(--glass);backdrop-filter:blur(8px);border:1px solid var(--line);
-  color:var(--ink);font:600 11px/1 var(--sans);cursor:pointer;box-shadow:var(--shadow-sm);
+  color:var(--ink);font:600 11px/1 var(--sans);cursor:pointer;
   transition:all .14s ease;
 }
 .leg-btn:hover{background:#fff;border-color:var(--line-strong);transform:translateY(-1px)}
@@ -390,7 +394,7 @@ canvas.pointer{cursor:pointer}
   display:inline-flex;align-items:center;padding:1px 6px;border-radius:4px;
   font:600 10px/1.4 var(--sans);background:var(--wash);color:var(--body);
 }
-.mini-tag.teal{background:var(--teal-soft);color:var(--teal)}
+.mini-tag.teal{background:var(--accent-soft);color:var(--accent-ink)}
 .mini-tag.terra{background:var(--terra-soft);color:var(--terra)}
 .mini-tag.plum{background:var(--plum-soft);color:var(--plum)}
 .mini-tag.slate{background:var(--slate-soft);color:var(--slate)}
@@ -408,10 +412,10 @@ canvas.pointer{cursor:pointer}
 .drawer-title{font:600 13px var(--serif);color:var(--ink);display:flex;align-items:center;gap:6px}
 .drawer-body{flex:1;overflow-y:auto;padding:12px 13px 16px}
 .back-btn{
-  border:1px solid var(--line);background:#fff;color:var(--teal);border-radius:6px;
-  padding:3px 8px;font:600 11px var(--sans);cursor:pointer;
+  border:1px solid var(--line);background:#fff;color:var(--accent-ink);border-radius:6px;
+  padding:5px 9px;font:600 12px var(--sans);cursor:pointer;
 }
-.back-btn:hover{background:var(--teal-soft);border-color:#E2B9A6}
+.back-btn:hover{background:var(--accent-soft);border-color:#E2B9A6}
 .ins-hero{padding-bottom:10px;border-bottom:1px solid var(--line);margin-bottom:10px}
 .ins-type{display:flex;align-items:center;gap:6px;font:600 11.5px var(--sans);color:var(--muted);margin-bottom:4px}
 .ins-name{font:600 16px/1.35 var(--serif);color:var(--ink);overflow-wrap:anywhere}
@@ -428,7 +432,7 @@ canvas.pointer{cursor:pointer}
 }
 .kpi-box span{display:block;font:10.5px var(--sans);color:var(--muted)}
 .kpi-box strong{font:700 16px/1.3 var(--mono);color:var(--ink)}
-.kpi-box.teal strong{color:var(--teal)}
+.kpi-box.teal strong{color:var(--accent-ink)}
 .kpi-box.terra strong{color:var(--terra)}
 
 /* Clickable Neighbor / Jump Chips */
@@ -439,14 +443,14 @@ canvas.pointer{cursor:pointer}
   color:var(--ink);font:500 11.5px/1.25 var(--sans);cursor:pointer;text-align:left;
   transition:all .13s ease;
 }
-.jump-chip:hover{background:var(--teal-soft);border-color:#E2B9A6;color:var(--teal);transform:translateY(-1px)}
+.jump-chip:hover{background:var(--accent-soft);border-color:#E2B9A6;color:var(--accent-ink);transform:translateY(-1px)}
 .jump-chip .j-txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px}
 .jump-chip .j-meta{font:10px var(--mono);color:var(--muted);flex:none}
-.jump-chip.active-rec{border-color:var(--teal);background:var(--teal-soft)}
+.jump-chip.active-rec{border-color:var(--accent-ink);background:var(--accent-soft)}
 
 /* Evidence Quote Cards */
 .quote-card{
-  background:var(--paper);border:1px solid var(--line);border-left:3px solid var(--teal);
+  background:var(--paper);border:1px solid var(--line);border-left:3px solid var(--accent);
   border-radius:0 7px 7px 0;padding:7px 9px;margin-bottom:7px;
 }
 .quote-card.project{border-left-color:var(--terra)}
@@ -457,23 +461,38 @@ canvas.pointer{cursor:pointer}
 .quote-body{font:11.8px/1.55 var(--serif);color:var(--body);margin:0;overflow-wrap:anywhere}
 .rec-preview{
   background:#FFFFFF;border:1px solid var(--line);border-radius:7px;padding:8px 9px;
-  font:11.5px/1.55 var(--mono);color:var(--body);white-space:pre-wrap;overflow-wrap:anywhere;
+  font:14px/1.6 var(--serif);color:var(--body);white-space:pre-wrap;overflow-wrap:anywhere;
   max-height:140px;overflow-y:auto;
 }
 .more-btn{
   width:100%;margin-top:4px;padding:5px;border:1px dashed var(--line-strong);border-radius:6px;
-  background:transparent;color:var(--teal);font:600 11.5px var(--sans);cursor:pointer;
+  background:transparent;color:var(--accent-ink);font:600 11.5px var(--sans);cursor:pointer;
 }
-.more-btn:hover{background:var(--teal-soft)}
+.more-btn:hover{background:var(--accent-soft)}
 .hint-note{font:11.5px/1.5 var(--sans);color:var(--muted);margin:6px 0 0}
 
+button:focus-visible,input:focus-visible,canvas:focus-visible{
+  outline:2px solid var(--accent-ink);outline-offset:-2px
+}
 @media(max-width:760px){
-  .studio{grid-template-columns:1fr;grid-template-rows:minmax(260px,1fr) 210px}
+  .studio{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) min(30%,180px)}
   .studio.drawer-closed{grid-template-columns:1fr;grid-template-rows:1fr 0px}
   .drawer{border-left:0;border-top:1px solid var(--line)}
-  .legend{max-width:100%;justify-content:flex-start}
-  .hud-bottom{flex-direction:column;align-items:flex-start}
+  .hud-top,.hud-bottom{gap:4px;padding:5px 8px}
+  .hud-group{gap:4px}
+  .hud-bottom{align-items:flex-start;flex-direction:column}
+  .legend{justify-content:flex-start;max-width:100%;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;padding:2px 0}
+  .leg-btn{flex:none;min-height:27px}
+  .search-drop{left:0;right:auto;width:min(210px,64vw)}
 }
+@media(max-width:500px){
+  .hud-group{width:100%;min-width:0}
+  .hud-pill{justify-content:space-between;width:100%}
+  .search-wrap{flex:1;min-width:60px}
+  .search-input,.search-input:focus{width:100%;min-width:0}
+  .chip-btn,.dock button,.seg button{min-height:30px}
+}
+@media(prefers-reduced-motion:reduce){*,*::after,*::before{transition:none!important}}
 """
 
 
@@ -493,21 +512,21 @@ def render_force_graph_html(
         active_record_id=active_record_id,
     )
     scope_zh = {"train": "训练集", "test": "测试集", "all": "全图"}.get(scope, scope.upper())
-    title = "单份简历抽取关系图" if focus_resume else f"知识图谱探索 · {scope_zh}"
+    title = "简历关系图" if focus_resume else f"关系图 · {scope_zh}"
     layouts = (
-        [("layered", "语义分层"), ("radial", "星云辐射"), ("force", "力导向")]
+        [("layered", "分层"), ("radial", "环形"), ("force", "自由布局")]
         if focus_resume
-        else [("radial", "同心轨道"), ("clustered", "语义分群"), ("force", "力导向")]
+        else [("radial", "环形"), ("clustered", "按类型"), ("force", "自由布局")]
     )
     layout_btns = "".join(
         f'<button type="button" data-layout="{k}" aria-pressed="{str(i == 0).lower()}">{lbl}</button>'
         for i, (k, lbl) in enumerate(layouts)
     )
-    filter_label = "仅看实战证据" if focus_resume else "精简清单边"
+    filter_label = "隐藏清单技能" if focus_resume else "隐藏清单关系"
     filter_title = (
-        "隐藏仅出现在技能清单的 HAS_SKILL 节点，聚焦工作/项目实证关系"
+        "隐藏只在技能清单中提到的技能，保留经历中用过的技能"
         if focus_resume
-        else "隐藏仅技能清单连线 (HAS_SKILL)，突出跨简历实证骨架"
+        else "隐藏由技能清单建立的连线，保留其他关系"
     )
     body = f"""
 <div class="studio" id="studio" style="height:min(100vh,{int(height)}px)">
@@ -528,11 +547,11 @@ def render_force_graph_html(
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
             <circle cx="7" cy="7" r="4.6"/><path d="M10.5 10.5 14 14" stroke-linecap="round"/>
           </svg>
-          <input id="search" class="search-input" type="search" placeholder="搜索技能、企业、岗位或简历..." autocomplete="off">
+          <input id="search" class="search-input" type="search" aria-label="搜索图中节点" placeholder="搜索图中节点" autocomplete="off">
           <span id="searchBadge" class="search-badge"></span>
-          <div id="searchDrop" class="search-drop" role="listbox"></div>
+          <div id="searchDrop" class="search-drop" role="group" aria-label="匹配的节点"></div>
         </div>
-        <button type="button" class="chip-btn" id="drawerToggle" aria-pressed="true" title="收起或展开右侧详情栏">详情栏</button>
+        <button type="button" class="chip-btn" id="drawerToggle" aria-pressed="true" title="显示或收起节点详情">详情栏</button>
       </div>
     </div>
 
@@ -547,13 +566,13 @@ def render_force_graph_html(
         <button type="button" id="zoomOutBtn" title="缩小 (-)">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3.5 8h9" stroke-linecap="round"/></svg>
         </button>
-        <button type="button" id="fitBtn" title="适配居中">
+        <button type="button" id="fitBtn" title="显示全图">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 5.5V3.5a1 1 0 0 1 1-1h2M10.5 2.5h2a1 1 0 0 1 1 1v2M13.5 10.5v2a1 1 0 0 1-1 1h-2M5.5 13.5h-2a1 1 0 0 1-1-1v-2" stroke-linecap="round"/></svg>
         </button>
         <span class="sep"></span>
-        <button type="button" id="pulseBtn" aria-pressed="true" title="关系流向微动效">流向</button>
-        <button type="button" id="edgeLblBtn" aria-pressed="false" title="显示或隐藏关系标签">边标签</button>
-        <button type="button" id="pauseBtn" aria-pressed="false" title="暂停或继续力导向排布">暂停</button>
+        <button type="button" id="pulseBtn" aria-pressed="true" title="显示或关闭关系流向动画">流向</button>
+        <button type="button" id="edgeLblBtn" aria-pressed="false" title="显示或隐藏关系标签">关系名</button>
+        <button type="button" id="pauseBtn" aria-pressed="false" title="暂停或继续自动布局">暂停</button>
       </div>
       <div class="legend" id="legend" role="group" aria-label="实体类型筛选"></div>
     </div>
@@ -586,6 +605,11 @@ _GRAPH_JS_CORE = r'''
 const $ = id => document.getElementById(id);
 const canvas = $('g'), ctx = canvas.getContext('2d');
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
+const rootStyle = getComputedStyle(document.documentElement);
+const theme = Object.fromEntries(
+  ['paper', 'card', 'ink', 'body', 'muted', 'accent', 'terra', 'wash'].map(key =>
+    [key, rootStyle.getPropertyValue('--' + key).trim()])
+);
 
 // Crisp vector silhouettes shared by Canvas nodes, Legend pills, and Inspector.
 const SHAPES = {
@@ -797,12 +821,12 @@ function computeLayeredLayout() {
 
   const topY = -Math.max(recSpan, gSpan, 240) / 2 - 48;
   const lanes = [
-    { x: col0X, y: topY, title: '01 候选人', sub: 'CV 根节点' },
-    { x: col1X, y: topY, title: '02 原子记录', sub: '工作 · 项目 · 教育' },
-    { x: col2X + 6, y: topY, title: '03 实证实体', sub: '企业 · 岗位 · 院校 · 实战技能' },
+    { x: col0X, y: topY, title: '候选人', sub: '简历' },
+    { x: col1X, y: topY, title: '经历段落', sub: '工作 · 项目 · 教育' },
+    { x: col2X + 6, y: topY, title: '技能与机构', sub: '企业 · 岗位 · 院校 · 实战技能' },
   ];
   if (listed.length) {
-    lanes.push({ x: col3X + (listed.length > 12 ? 48 : 0), y: topY, title: '04 清单技能', sub: '仅 HAS_SKILL' });
+    lanes.push({ x: col3X + (listed.length > 12 ? 48 : 0), y: topY, title: '清单技能', sub: '只在技能清单中提及' });
   }
   guideMeta = { kind: 'lanes', lanes, rings: [], clusters: [] };
 }
@@ -840,10 +864,10 @@ function computeRadialLayout() {
       n.tx = Math.cos(a) * r3; n.ty = Math.sin(a) * r3;
     });
     const rings = [
-      { r: r1, label: '原子记录环' },
-      { r: r2, label: '实证实体环' },
+      { r: r1, label: '工作、项目与教育经历' },
+      { r: r2, label: '经历中的技能与机构' },
     ];
-    if (listed.length) rings.push({ r: r3, label: '清单技能外环' });
+    if (listed.length) rings.push({ r: r3, label: '清单技能' });
     guideMeta = { kind: 'rings', lanes: [], rings, clusters: [] };
   } else {
     const hubs = nodes.filter(n => isNodeVisible(n) && ['Skill', 'Company', 'JobTitle', 'University'].includes(n.label))
@@ -871,9 +895,9 @@ function computeRadialLayout() {
       kind: 'rings',
       lanes: [],
       rings: [
-        { r: r0, label: '高频共享枢纽' },
-        { r: r1, label: '候选人节点' },
-        { r: r2, label: '细分经历与长尾实体' },
+        { r: r0, label: '多份简历提到的内容' },
+        { r: r1, label: '候选人' },
+        { r: r2, label: '经历与较少出现的实体' },
       ],
       clusters: [],
     };
@@ -882,14 +906,14 @@ function computeRadialLayout() {
 
 // Semantic sector centers for Tab 3 Clustered Force layout.
 const CLUSTER_CENTERS = {
-  Skill: { x: 0, y: -15, label: '核心技能网络' },
-  Candidate: { x: -185, y: -95, label: '候选人队列' },
+  Skill: { x: 0, y: -15, label: '技能' },
+  Candidate: { x: -185, y: -95, label: '候选人' },
   WorkExperience: { x: -205, y: 120, label: '工作经历' },
   JobTitle: { x: -15, y: 205, label: '岗位头衔' },
   Company: { x: 185, y: 145, label: '就职企业' },
   Project: { x: 215, y: -30, label: '项目经历' },
   Education: { x: 145, y: -185, label: '教育背景' },
-  University: { x: -35, y: -210, label: '毕业院校' },
+  University: { x: -35, y: -210, label: '就读院校' },
 };
 
 function initForcePositions(clustered) {
@@ -1050,10 +1074,10 @@ function drawGuides() {
       const fs = Math.min(13, Math.max(9.5, 11.5 / cam.s));
       ctx.font = '700 ' + fs + 'px ' + FONT_SANS;
       ctx.textAlign = 'center';
-      ctx.fillStyle = '#3D3B36';
+      ctx.fillStyle = theme.body;
       ctx.fillText(lane.title, lane.x, lane.y);
       ctx.font = '500 ' + (fs * 0.82) + 'px ' + FONT_SANS;
-      ctx.fillStyle = '#85827A';
+      ctx.fillStyle = theme.muted;
       ctx.fillText(lane.sub, lane.x, lane.y + fs * 1.15);
     }
     ctx.restore();
@@ -1070,7 +1094,7 @@ function drawGuides() {
       const fs = Math.min(12, Math.max(9, 10.5 / cam.s));
       ctx.font = '600 ' + fs + 'px ' + FONT_SANS;
       ctx.textAlign = 'center';
-      ctx.fillStyle = '#85827A';
+      ctx.fillStyle = theme.muted;
       ctx.fillText(ring.label, 0, -ring.r - 6 / cam.s);
     }
     ctx.restore();
@@ -1187,7 +1211,7 @@ function drawEdge(e, active, link, now) {
     const tw = ctx.measureText(lbl).width + 8 / cam.s;
     const th = fs + 4 / cam.s;
     ctx.globalAlpha = 0.95;
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = theme.card;
     ctx.strokeStyle = e.meta.color + '55';
     ctx.lineWidth = 0.9 / cam.s;
     roundBox(mx - tw / 2, my - th / 2, tw, th, 4 / cam.s);
@@ -1212,7 +1236,7 @@ function paintNode(n, isActive, isNeighbor, now) {
     ctx.save();
     ctx.beginPath();
     ctx.arc(0, 0, r + (4.5 + pulse) / cam.s, 0, Math.PI * 2);
-    ctx.strokeStyle = n.disambig ? '#A0662E' : '#C96442';
+    ctx.strokeStyle = n.disambig ? theme.terra : theme.accent;
     ctx.lineWidth = 1.4 / cam.s;
     ctx.setLineDash([3 / cam.s, 3 / cam.s]);
     ctx.stroke();
@@ -1244,31 +1268,31 @@ function paintNode(n, isActive, isNeighbor, now) {
   }
 
   // Crisp white isolation ring separating edges from node silhouette.
-  ctx.strokeStyle = '#FAF9F5';
+  ctx.strokeStyle = theme.paper;
   ctx.lineWidth = 3.2 * px;
   ctx.stroke(path);
 
-  ctx.fillStyle = '#ffffff'; ctx.fill(path);
-  ctx.fillStyle = n.listed_only ? '#F3F1EA' : tint; ctx.fill(path);
+  ctx.fillStyle = theme.card; ctx.fill(path);
+  ctx.fillStyle = n.listed_only ? theme.wash : tint; ctx.fill(path);
   ctx.strokeStyle = n.listed_only ? '#A8A496' : ink;
   ctx.lineWidth = Math.min(2.3, px * (isActive ? 2.1 : 1.35));
   ctx.stroke(path);
 
   if (n.label === 'Candidate' && r * cam.s >= 6) {
-    ctx.strokeStyle = '#FAF9F5';
+    ctx.strokeStyle = theme.paper;
     ctx.lineWidth = Math.min(1.8, 1.3 * px);
     ctx.stroke(CV_FOLD);
   }
   ctx.restore();
 
-  // Tiny solid emerald indicator badge on evidenced skills in Tab 2.
+  // Indicator for skills supported by experience or project records.
   if (RAW.focus_mode && n.label === 'Skill' && !n.listed_only && n.opacity > 0.5) {
     ctx.save();
     ctx.globalAlpha = n.opacity;
     ctx.beginPath();
     ctx.arc(n.x + r * 0.72, n.y - r * 0.72, 2.7 / cam.s, 0, Math.PI * 2);
-    ctx.fillStyle = '#C96442';
-    ctx.strokeStyle = '#FAF9F5';
+    ctx.fillStyle = theme.accent;
+    ctx.strokeStyle = theme.paper;
     ctx.lineWidth = 1.2 / cam.s;
     ctx.fill(); ctx.stroke();
     ctx.restore();
@@ -1379,12 +1403,12 @@ function draw(now) {
 
     ctx.save();
     ctx.globalAlpha = Math.min(1, n.opacity + 0.08);
-    ctx.fillStyle = isFocus ? '#ffffff' : 'rgba(250,249,245,0.88)';
+    ctx.fillStyle = isFocus ? theme.card : 'rgba(250,249,245,0.88)';
     ctx.strokeStyle = isFocus ? symOf(n.label).ink + '80' : 'rgba(222,218,206,0.75)';
     ctx.lineWidth = (isFocus ? 1.2 : 0.8) / cam.s;
     roundBox(box.l, box.t, box.r - box.l, box.b - box.t, 4 / cam.s);
     ctx.fill(); ctx.stroke();
-    ctx.fillStyle = isFocus ? '#1F1E1D' : '#3D3B36';
+    ctx.fillStyle = isFocus ? theme.ink : theme.body;
     ctx.fillText(text, lx, ly);
     ctx.restore();
   }
@@ -1450,7 +1474,7 @@ function makeJumpChip(n, subText = '') {
 function renderOverview() {
   const box = $('inspector');
   box.replaceChildren();
-  $('drawerTitle').textContent = RAW.focus_mode ? '单简历抽取导览' : '图谱枢纽导览';
+  $('drawerTitle').textContent = RAW.focus_mode ? '这份简历' : '图中有哪些内容';
   $('backBtn').style.display = 'none';
 
   if (RAW.focus_mode) {
@@ -1464,13 +1488,13 @@ function renderOverview() {
       k.append(el('span', '', lbl), el('strong', '', val));
       return k;
     };
-    kpi.append(mk('工作经历', works), mk('项目经历', projs, 'terra'), mk('实战核验技能', evSkills, 'teal'), mk('仅清单技能', listSkills));
+    kpi.append(mk('工作经历', works), mk('项目经历', projs, 'terra'), mk('用过的技能', evSkills, 'teal'), mk('仅列在清单', listSkills));
     box.append(kpi);
 
     const recs = RAW.record_ids.map(id => byId.get(id)).filter(Boolean);
     if (recs.length) {
       const sec = el('div', 'ins-sec');
-      sec.append(el('div', 'ins-sec-title', '原子记录快捷定位（点击聚焦）'));
+      sec.append(el('div', 'ins-sec-title', '定位到经历段落'));
       const list = el('div', 'jump-list');
       for (const r of recs) {
         list.append(makeJumpChip(r, r.page_num ? 'p.' + r.page_num : ''));
@@ -1481,13 +1505,13 @@ function renderOverview() {
     const evList = nodes.filter(n => n.label === 'Skill' && !n.listed_only).sort((a, b) => b.evidenced_count - a.evidenced_count);
     if (evList.length) {
       const sec = el('div', 'ins-sec');
-      sec.append(el('div', 'ins-sec-title', '实战核验技能（USED / APPLIED）'));
+      sec.append(el('div', 'ins-sec-title', '经历中用过的技能'));
       const list = el('div', 'jump-list');
       for (const s of evList.slice(0, 12)) list.append(makeJumpChip(s, '×' + s.evidenced_count));
       sec.append(list);
       box.append(sec);
     }
-    box.append(el('p', 'hint-note', '提示：实线带箭头为工作/项目实证关系，虚线为技能清单提及（HAS_SKILL）。点击上方「仅看实战证据」可一键折叠清单技能。'));
+    box.append(el('p', 'hint-note', '虚线连接技能清单里的条目。点击一段经历，可以查看对应的简历原句。'));
   } else {
     const vn = nodes.filter(isNodeVisible).length;
     const ve = edges.filter(isEdgeVisible).length;
@@ -1499,13 +1523,13 @@ function renderOverview() {
       k.append(el('span', '', lbl), el('strong', '', val));
       return k;
     };
-    kpi.append(mk('当前节点', vn), mk('当前关系', ve), mk('消歧焦点实体', disN, 'terra'), mk('跨文档别名簇', aliasN, 'teal'));
+    kpi.append(mk('当前节点', vn), mk('当前关系', ve), mk('已消歧的实体', disN, 'terra'), mk('有别名的实体', aliasN, 'teal'));
     box.append(kpi);
 
     const disNodes = RAW.disambig_ids.map(id => byId.get(id)).filter(Boolean);
     if (disNodes.length) {
       const sec = el('div', 'ins-sec');
-      sec.append(el('div', 'ins-sec-title', '消歧焦点实体（同名异义 · 点击定位）'));
+      sec.append(el('div', 'ins-sec-title', '同一写法的不同含义'));
       const list = el('div', 'jump-list');
       for (const d of disNodes) list.append(makeJumpChip(d, d.disambig));
       sec.append(list);
@@ -1514,13 +1538,13 @@ function renderOverview() {
     const hubNodes = RAW.hub_ids.map(id => byId.get(id)).filter(Boolean);
     if (hubNodes.length) {
       const sec = el('div', 'ins-sec');
-      sec.append(el('div', 'ins-sec-title', '跨简历高频共享枢纽'));
+      sec.append(el('div', 'ins-sec-title', '多份简历共同提到'));
       const list = el('div', 'jump-list');
       for (const h of hubNodes) list.append(makeJumpChip(h, h.resume_span + '份'));
       sec.append(list);
       box.append(sec);
     }
-    box.append(el('p', 'hint-note', '点击任意节点可查看邻域跳转与 PDF 原句证据；拖动节点可手动微调，滚轮缩放，双击画布返回总览。'));
+    box.append(el('p', 'hint-note', '点击节点查看关联和原句。双击画布可回到全图。'));
   }
 }
 
@@ -1536,7 +1560,7 @@ function select(n) {
 function renderInspector(n) {
   const box = $('inspector');
   box.replaceChildren();
-  $('drawerTitle').textContent = '实体与证据详情';
+  $('drawerTitle').textContent = '节点详情';
   $('backBtn').style.display = '';
 
   const hero = el('div', 'ins-hero');
@@ -1551,10 +1575,10 @@ function renderInspector(n) {
   if (n.label === 'Skill') {
     tags.append(n.listed_only
       ? el('span', 'mini-tag', '仅清单提及')
-      : el('span', 'mini-tag teal', '★ 实战核验 ×' + n.evidenced_count));
+      : el('span', 'mini-tag teal', '经历提及 ×' + n.evidenced_count));
   }
   if (n.resume_span > 1) tags.append(el('span', 'mini-tag teal', '跨 ' + n.resume_span + ' 份简历'));
-  if (n.disambig) tags.append(el('span', 'mini-tag terra', '消歧词: ' + n.disambig));
+  if (n.disambig) tags.append(el('span', 'mini-tag terra', '原词　' + n.disambig));
   if (n.aliases && n.aliases.length > 1) tags.append(el('span', 'mini-tag plum', '归并别名 ×' + n.aliases.length));
   if (tags.children.length) hero.append(tags);
   if (n.aliases && n.aliases.length > 1) {
@@ -1564,7 +1588,7 @@ function renderInspector(n) {
 
   if (n.record_text) {
     const sec = el('div', 'ins-sec');
-    sec.append(el('div', 'ins-sec-title', '原子记录原文' + (n.page_num ? '（第 ' + n.page_num + ' 页）' : '')));
+    sec.append(el('div', 'ins-sec-title', '经历原文' + (n.page_num ? '（第 ' + n.page_num + ' 页）' : '')));
     sec.append(el('div', 'rec-preview', n.record_text));
     box.append(sec);
   }
@@ -1581,7 +1605,7 @@ function renderInspector(n) {
       grouped.get(key).push({ other: e.s === n ? e.t : e.s, edge: e });
     }
     const navSec = el('div', 'ins-sec');
-    navSec.append(el('div', 'ins-sec-title', '关联邻域跳转（点击飞向节点）'));
+    navSec.append(el('div', 'ins-sec-title', '相关节点'));
     for (const [grpLabel, items] of grouped) {
       const sub = el('div', 'hint-note', grpLabel + ' (' + items.length + ')');
       sub.style.margin = '5px 0 3px';
@@ -1596,7 +1620,7 @@ function renderInspector(n) {
 
     // Verified PDF quotes section.
     const qSec = el('div', 'ins-sec');
-    qSec.append(el('div', 'ins-sec-title', '原文引文证据（' + rels.length + ' 条）'));
+    qSec.append(el('div', 'ins-sec-title', '关系与出处（' + rels.length + ' 条）'));
     const limit = showAllQuotes ? rels.length : 5;
     for (const e of rels.slice(0, limit)) {
       const other = e.s === n ? e.t : e.s;
@@ -1608,7 +1632,7 @@ function renderInspector(n) {
         el('span', 'quote-pg', (e.resume_id || '') + ' · p.' + (e.page_num || '?') + (e.valid ? ' ✓' : ''))
       );
       card.append(top);
-      const quoteText = (e.quotes && e.quotes[0]) || e.quote || '（结构化归属关系）';
+      const quoteText = (e.quotes && e.quotes[0]) || e.quote || '此关系记录了条目归属。';
       card.append(el('p', 'quote-body', quoteText));
       qSec.append(card);
     }
@@ -1634,9 +1658,9 @@ function showHoverTip(n, clientX, clientY) {
   const meta = el('div', 'tip-meta');
   if (n.period) meta.append(el('span', 'mini-tag slate', n.period));
   if (n.label === 'Skill') {
-    meta.append(n.listed_only ? el('span', 'mini-tag', '仅清单') : el('span', 'mini-tag teal', '★ 实战核验'));
+    meta.append(n.listed_only ? el('span', 'mini-tag', '仅清单') : el('span', 'mini-tag teal', '经历中用过'));
   }
-  if (n.disambig) meta.append(el('span', 'mini-tag terra', '消歧: ' + n.disambig));
+  if (n.disambig) meta.append(el('span', 'mini-tag terra', '原词　' + n.disambig));
   if (n.aliases && n.aliases.length > 1) meta.append(el('span', 'mini-tag plum', '归并 ×' + n.aliases.length));
   if (n.resume_span > 1) meta.append(el('span', 'mini-tag teal', n.resume_span + ' 份简历'));
   if (meta.children.length) hoverTip.append(meta);
@@ -1835,6 +1859,7 @@ $('evidenceToggle').onclick = () => {
 $('drawerToggle').onclick = () => {
   const closed = $('studio').classList.toggle('drawer-closed');
   $('drawerToggle').setAttribute('aria-pressed', String(!closed));
+  $('drawer').inert = closed;
   setTimeout(resize, 230);
 };
 $('backBtn').onclick = () => { select(null); fit(false); };
@@ -1866,7 +1891,7 @@ updateCounter();
 applyLayout(layoutMode, true);
 resize();
 renderOverview();
-new ResizeObserver(resize).observe($('stage'));
+new ResizeObserver(resize).observe(canvas);
 new IntersectionObserver(es => { visible = es[0].isIntersecting; if (visible) request(); }).observe(canvas);
 document.addEventListener('visibilitychange', request);
 motion.addEventListener('change', () => {
