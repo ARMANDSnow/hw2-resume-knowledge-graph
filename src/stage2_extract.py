@@ -6,7 +6,9 @@ import re
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from .config import RAW, read_json, write_json
+import pymupdf
+
+from .config import ROOT, RAW, read_json, write_json
 from .provenance import validate_quote
 
 LABELS = ["person", "company", "university", "degree", "major", "job title",
@@ -26,13 +28,13 @@ HEADING = re.compile(r"(?<![A-Za-z])(?:" + _HEADING_WORDS + r")(?![A-Za-z])", re
 MONTH = r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
 YEAR = r"(?:19[6-9]\d|20[0-3]\d)"
 DATE = rf"(?:{MONTH}\.?[\s,/’-]*{YEAR}|(?:0?[1-9]|1[012])\s*[/.-]\s*{YEAR}|{YEAR}(?:[-/]\d{{1,2}})?)"
-PERIOD = re.compile(rf"(?<!\d)(?P<start>{DATE})\s*(?:[-–—−]|\bto\b|\buntil\b)\s*(?P<end>{DATE}|present|current(?:ly)?|ongoing|now|till date|to date)\b", re.I)
+PERIOD = re.compile(rf"(?<!\d)(?P<start>{DATE})\s*(?:[-–—−]|ï¼\u200b?|\bto\b|\buntil\b)\s*(?P<end>{DATE}|present|current(?:ly)?|ongoing|now|till date|to date)\b", re.I)
 DEGREE = re.compile(r"\b(?:Ph\.?\s?D\.?|Doctor(?:ate| of [A-Z][a-z]+)|Masters?(?:['’]s)?|M\.?\s?Sc\.?|M\.?\s?S\.?|MBA|Bachelors?(?:['’]s)?|B\.?\s?Sc\.?|B\.?\s?S\.?|B\.?\s?Tech\.?|Associate(?:['’]s)?\s+(?:degree|of))(?=\s|[,.(]|$)", re.I)
 ROLE = re.compile(r"\b(?:senior |junior |lead |principal |associate |assistant |staff )?(?:[A-Za-z][\w&/-]*[ \t]+){0,3}(?:engineer|developer|intern|analyst|scientist|consultant|manager|director|architect|designer|administrator|coordinator|officer|specialist|technician|teacher|accountant|executive|associate|lead)\b", re.I)
 SCHOOL = re.compile(r"\b(?:university|college|institute|polytechnic|school)\b", re.I)
 CATEGORIES = {
     "Programming": "Python|Java|C++|C#|C|F#|R|Golang|Go|Rust|Scala|Kotlin|Swift|Ruby|Perl|MATLAB|SAS|Objective-C|Bash|Shell Scripting|Shell scripting|PowerShell|Haskell|Dart",
-    "Data_AI": "Machine Learning|ML|Deep Learning|Natural Language Processing|NLP|Artificial Intelligence|AI|TensorFlow|PyTorch|Pandas|NumPy|Scikit-learn|Tableau|Power BI|Microsoft Excel|MS Excel|Excel|Spark|Apache Spark|Hadoop|Data Analysis|Data Analytics|Statistics|Data Visualization|Big Data|Computer Vision|ETL",
+    "Data_AI": "Machine Learning|ML|Deep Learning|Natural Language Processing|NLP|Artificial Intelligence|AI|Apriori|TensorFlow|PyTorch|Pandas|NumPy|Scikit-learn|Tableau|Power BI|Microsoft Excel|MS Excel|Excel|Spark|Apache Spark|Hadoop|Data Analysis|Data Analytics|Statistics|Data Visualization|Big Data|Computer Vision|ETL",
     "Database": "SQL|MySQL|PostgreSQL|Postgres|Microsoft SQL Server|MS SQL Server|MS SQL|SQL Server|T-SQL|PL/SQL|SQLite|MongoDB|Redis|Oracle Database|Oracle DB|Oracle SQL|Cassandra|DynamoDB|Snowflake",
     "Cloud_DevOps": "Amazon Web Services|Amazon AWS|AWS|Microsoft Azure|Azure|Google Cloud Platform|Google Cloud|GCP|Docker|Kubernetes|K8s|Linux|Unix|Git|GitHub|GitLab|Jenkins|Terraform|Ansible|CI/CD|Microsoft Windows|Windows|VMware|Cisco IOS",
     "Web_Mobile": "JavaScript|Javascript|JS|TypeScript|React.js|ReactJS|React|Node.js|NodeJS|AngularJS|Angular|Vue.js|Next.js|HTML5|HTML|CSS3|CSS|PHP|jQuery|Django|Flask|Spring Boot|Spring Framework|Spring|ASP.NET|.NET|REST API|RESTful APIs|Android|iOS|Bootstrap|Express.js",
@@ -111,7 +113,46 @@ def section_spans(text, previous="PROFILE"):
     yield section, begin, len(text)
 
 
-def _blocks(text, section):
+def project_title_hints(doc):
+    """Find a bold title followed by regular body copy on the same PDF line.
+
+    Match the complete line against the stored text layer before using its
+    offset. Pages extracted by a different PDF reader can use the text fallback.
+    """
+    hints = {}
+    path = ROOT / doc["pdf_path"] if doc.get("pdf_path") else None
+    if not path or not path.is_file():
+        return hints
+    with pymupdf.open(path) as pdf:
+        for stored in doc["pages"]:
+            page_num, text = stored["page_num"], stored["text"]
+            titles = {}
+            cursor = 0
+            for block in pdf[page_num - 1].get_text("dict", flags=pymupdf.TEXTFLAGS_DICT & ~pymupdf.TEXT_PRESERVE_IMAGES)["blocks"]:
+                for line in block.get("lines", []):
+                    spans = line["spans"]
+                    raw = "".join(s["text"] for s in spans)
+                    offset = text.find(raw, cursor) if raw else -1
+                    if offset < 0:
+                        continue
+                    cursor = offset + len(raw)
+                    bold = []
+                    for span in spans:
+                        if not span["flags"] & 16:
+                            break
+                        bold.append(span["text"])
+                    title = "".join(bold).strip().rstrip(":").strip()
+                    body = raw[len("".join(bold)):].strip(" :–-")
+                    if (len(body) >= 12 and 2 <= len(title.split()) <= 12 and
+                        re.match(r"[A-Z]", title) and not re.match(r"(?i)^project\s*[:#\d–-]", title) and not re.search(
+                            r"(?i)^(?:role|tools?|tech(?:nical|nology)? stack|technolog(?:y|ies)|"
+                            r"responsibilit(?:y|ies)|brief description|project (?:name|title)|team size)\b",title)):
+                        titles[offset + len(raw) - len(raw.lstrip())] = title
+            hints[page_num] = titles
+    return hints
+
+
+def _blocks(text, section, title_offsets=()):
     """Identify work dates with adjacent title lines, and project/degree headers."""
     lines = list(re.finditer(r"[^\n]+", text))
     starts = []
@@ -157,6 +198,8 @@ def _blocks(text, section):
         explicit=[l.start() for l in lines if re.match(r"(?i)^\s*(?:(?:final year|academic)\s+)?project\s*(?:\d+\s*)?[:–-]",l[0])]
         if explicit:
             starts.extend(explicit)
+        elif len(title_offsets) >= 2:
+            starts.extend(title_offsets)
         else:
             for i,l in enumerate(lines[1:],1):
                 title=l[0].strip()
@@ -191,6 +234,7 @@ def _blocks(text, section):
 def records_for(doc):
     records = []
     previous = "PROFILE"
+    page_titles = project_title_hints(doc)
     stacked=any(len(re.findall(r"(?im)^\s*(?:work experience|skills|education|certifications?|profile summary)\s*$",p["text"][-450:]))>=3 for p in doc["pages"])
     for page in doc["pages"]:
         text = page["text"]
@@ -222,7 +266,8 @@ def records_for(doc):
             spans[:1]=[("OTHER",0,anchor.start()),(typ,anchor.start(),hi)] if anchor else [("OTHER",0,hi)]
         for section, off, hi in spans:
             previous = section
-            for typ, a, b in _blocks(text[off:hi], section):
+            titles = {i-off:t for i,t in page_titles.get(page["page_num"], {}).items() if off <= i < hi and section=="PROJECTS"}
+            for typ, a, b in _blocks(text[off:hi], section, titles):
                 lo, end = off+a, off+b
                 while lo < end and text[lo].isspace():
                     lo += 1
@@ -234,6 +279,8 @@ def records_for(doc):
                 records.append(dict(record_id=f"{doc['resume_id']}:r{len(records)+1}", kind=kind,
                     page_num=page["page_num"], char_start=page["char_start"]+lo, char_end=page["char_start"]+end,
                     page_start=lo, page_end=end, record_text=text[lo:end]))
+                if kind == "ProjectRecord" and lo-off in titles and len(titles)>=2:
+                    records[-1]["project_title"] = titles[lo-off]
     return records
 
 
@@ -428,6 +475,7 @@ def skill_mentions(record):
         # Acronyms such as R or C are skills only within a technical context.
         if canonical.lower() in {"c","r","go","ai","ml","js"} and (
             m[0].islower() or (canonical.lower() in {"c","r","go"} and not
+            (canonical == "C" and re.search(r"(?i)system calls in\s+$",text[max(0,m.start()-32):m.start()])) and not
             re.search(r"(?i)languages?|programming|\b(?:Python|Java|C\+\+|Ruby|Golang|Scala|RStudio|coding|SQL|code|MATLAB|SAS|software)\b", around))
         ):
             reason = "短词缺少编程语境或为普通词"
@@ -509,7 +557,9 @@ def extraction_graph(documents, records_by_id):
             if parent:
                 if kind=="EduRecord" and facts.get("degree"):
                     header=" / ".join(dict.fromkeys(v for v in (facts["degree"],facts.get("major",""),main["text"] if main else "") if v))
-                if kind=="ProjectRecord" and (proj:=match_entity(record,"project",95)):
+                if kind=="ProjectRecord" and record.get("project_title"):
+                    header=record["project_title"]
+                elif kind=="ProjectRecord" and (proj:=match_entity(record,"project",95)):
                     header=proj["text"]
                 meta = dict(name=header or kind, record_id=record_id,resume_id=rid,record_text=txt,page_num=page_num,
                             char_start=record["char_start"],page_start=record["page_start"],**facts)

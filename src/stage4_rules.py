@@ -536,6 +536,10 @@ def focus_profiles(candidates, model, ids=None):
         radar({rid:result["scores"]}, directory / f"{rid}.png", "Evidence-based profile")
         lines = [f"# {rid} 简历评估", "", f"所属样本集：{row['split']}。",
                  "", f"![四维雷达图]({rid}.png)", "", *analysis, ""]
+        all_quotes = group_rule_evidence(ev for examples in rule_evidence.values() for ev in examples)
+        def quote_key(ev):
+            return (ev["page_num"], ev["record_id"], ev["evidence_quote"])
+        references = {quote_key(ev): f"E{i:02d}" for i,ev in enumerate(all_quotes,1)}
         for d in DIMENSIONS:
             lines += [f"## {TITLES[d]}　{result['scores'][d]} / 100　等级 {result['grades'][d]}", ""]
             fired = [x for x in rules if x["dimension"] == d]
@@ -544,10 +548,15 @@ def focus_profiles(candidates, model, ids=None):
             for rule in fired:
                 lines += [f"### {rule['rule_id']}　{rule['title']}", "",
                           f"特征值 {f[rule['feature']]:.5g}，标定门槛 {rule['threshold']:.5g}，计 25 分。", ""]
-                for ev in rule_evidence[rule["rule_id"]]:
-                    lines.append(f"- {rid} · PDF 第 {ev['page_num']} 页　"
-                                 + " ".join(ev["evidence_quote"].split()))
-                lines.append("")
+                examples = group_rule_evidence(rule_evidence[rule["rule_id"]])
+                labels = [references[quote_key(ev)] for ev in examples]
+                lines += ["原文证据　" + "、".join(f"[{label}](#{label.lower()})" for label in labels), ""]
+        lines += ["## 原文证据索引", ""]
+        for ev in all_quotes:
+            label = references[quote_key(ev)]
+            skills = "　涉及技能：" + "、".join(ev["skills"]) if ev["skills"] else ""
+            lines += [f'<a id="{label.lower()}"></a>', "",
+                      f"**{label}** · {rid} · PDF 第 {ev['page_num']} 页　{ev['evidence_quote']}{skills}", ""]
         (directory / f"{rid}.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
         outputs.append(profile)
     # Remove only the generated triplets for obsolete focus selections.

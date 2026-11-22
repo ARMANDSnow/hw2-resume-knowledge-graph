@@ -21,11 +21,11 @@ from src.stage5_query import (
     execute_query,
     recommendation,
 )
+from src.ui_graph import render_force_graph_html
 from src.ui_theme import evidence_card_html, hero_banner_html, highlighted_record_html, theme_css
 from src.ui_visuals import (
     render_coref_merge_animator_html,
     render_disambiguation_animator_html,
-    render_force_graph_html,
     render_funnel_html,
     render_interactive_radar_html,
     render_sync_morph_html,
@@ -97,7 +97,7 @@ def collection_tab(doc: dict | None, manifest: dict):
         return
     total = manifest.get("corpus_counts", {}).get("pdf_files")
     section_header("数据采集与去重", f"从 {total:,} 份英文简历中筛选研究样本，保留逐页原文以供核查。" if total else "逐页查看原文，核对样本的去重与划分。")
-    render_canvas(render_funnel_html(manifest), height=290)
+    render_canvas(render_funnel_html(manifest), height=320)
 
     left, right = st.columns([1.6, 1], gap="large")
     with left:
@@ -166,10 +166,21 @@ def extraction_tab(doc: dict | None, resolved: dict):
 
     if resolved:
         st.markdown("#### 简历关系图")
-        st.caption("图中节点来自本次抽取快照。点击节点可查看关联证据。")
+        st.caption("默认按「候选人 → 原子记录 → 实证实体 → 清单技能」语义分层排布；实线带箭头为工作/项目实证关系，虚线为清单提及，可切换布局或一键仅看实战证据。")
+        saved_idx = st.session_state.get("tab2_rec_sel", 0)
+        if not isinstance(saved_idx, int) or not (0 <= saved_idx < len(records)):
+            saved_idx = 0
+        active_rec_id = records[saved_idx]["record_id"] if records else None
         render_canvas(
-            render_force_graph_html(resolved, scope="all", max_nodes=120, focus_resume=rid, height=470),
-            height=480,
+            render_force_graph_html(
+                resolved,
+                scope="all",
+                max_nodes=120,
+                focus_resume=rid,
+                height=530,
+                active_record_id=active_rec_id,
+            ),
+            height=540,
         )
 
     left, right = st.columns([1.2, 1], gap="large")
@@ -251,11 +262,11 @@ def graph_tab(stats: dict, resolved: dict):
         )
 
     render_canvas(
-        render_force_graph_html(resolved, scope=scope, max_nodes=max_nodes, height=600),
-        height=610,
+        render_force_graph_html(resolved, scope=scope, max_nodes=max_nodes, height=640),
+        height=650,
     )
 
-    st.caption("上图从已保存的图谱快照中选取节点，上限仅影响绘制数量。")
+    st.caption("默认同心轨道从内向外排列共享枢纽、候选人与细分经历。可切换语义分群或力导向布局，点击右侧实体查看邻域与原文。")
     audit = resolved.get("coref_audit", {})
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("双边消岐组", len(resolved.get("disambiguation_groups", [])))

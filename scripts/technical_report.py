@@ -11,7 +11,7 @@ def table(headers, rows):
             *["| "+" | ".join(cell(v) for v in row)+" |" for row in rows], ""]
 
 
-def render(report):
+def render(report, *, brief=False):
     m = [None] + [report["checks"][f"AC-{i}"]["metrics"] for i in range(1,8)]
     kg = read_json(PROCESSED/"resolved_kg.json")
     model = read_json(PROCESSED/"rules_model.json")
@@ -21,12 +21,71 @@ def render(report):
     train = m[4]["train"]
     main = read_json(PROCESSED/"query_reports/main.json")
     zero = read_json(PROCESSED/"query_reports/zero.json")
-    lines = ["# 基于英文简历知识图谱的数据治理与可解释规则生成", "",
-             "丁宇轩 · 524031910745 · 独立完成全流程设计、开发、测试、演示准备及文档撰写 · 贡献比例 100%。", "",
+    title = "简历知识图谱与岗位匹配"
+    byline = ["智能信息系统建模　作业 2", "", "丁宇轩 · 524031910745 · 独立完成全流程设计、开发、测试、录屏及文档撰写 · 贡献比例 100%。", ""]
+    lines = ["# " + title + "项目说明", "", *byline,
+             "## 项目概述", "",
+             "招聘人员拿到一份简历时，常常需要确认两件事：候选人是否提过某项技能，又是否在具体工作中用过它。"
+             "本项目把技能、岗位、企业和经历连到简历原句。阅读者可以从岗位筛选结果回到候选人的项目，再打开 PDF 核对页码。", "",
              f"在 {m[2]['train']} 份训练简历上构建了 {train['node_count']} 个可达领域节点和 "
              f"{train['relationship_count']} 条有来源的关系。{m[2]['test']} 份独立测试简历仅参与应用评估。"
              f"主岗位需求严格命中 {m[7]['main']['strict']} 人，极高门槛对照命中 {m[7]['zero']['strict']} 人。", "",
-             "## 一、架构与复现", "",
+             "## 用户需求与实现", ""]
+    lines += table(["需求", "实现结果"], [
+        ("查看技能的使用场景", "每条工作或项目技能关系都带原句；在单份简历关系图中可只看实战证据。"),
+        ("区分同名实体并归并别名", "用记录上下文区分 IBM 公司和 IBM MQ Series；把 ML 与 Machine Learning 归入同一技能。"),
+        ("解释画像分数", "四个能力维度各有四条规则。工作台给出命中项、训练阈值与来源记录。"),
+        ("按岗位条件比较简历", "从独立测试集筛选，再比较前三人的四维画像、项目和实证技能；缺少硬条件的人单列。"),
+    ])
+    lines += ["## 业务操作流程", "",
+              "先在「数据采集」选择一份简历，打开原始 PDF 对照分页文本。在「记录抽取」选择工作或项目记录；"
+              "默认语义分层视图将候选人、原子记录、实证实体和清单技能分列，打开「仅看实战证据」可聚焦实际使用场景。", "",
+              "进入「图谱探索」后，训练集默认以同心轨道显示。内圈优先放跨简历共享的技能、企业等实体，中圈是候选人，外圈是细分经历和较少共享的实体。"
+              "画布计数反映当前显示的子图，范围选择器旁给出完整统计。点击右侧 IBM Global Services，沿雇主关系即可核对来源；在下方 IBM 消岐示例中可并读公司与技术产品的引文。", "",
+              "在「规则画像」切换训练快照，观察同一人的评分如何随阈值变化。最后到「岗位检索」运行主需求，查看前三人的雷达图、原始 PDF 和命中依据，再切换零命中示例核查缺项。", "",
+              "## 五阶段技术建模", ""]
+    lines += table(["阶段", "主要技术", "形成的数据"], [
+        ("采 · 数据采集", "PyMuPDF 逐页取文，文件与文本哈希去重，连续五词相似度复核", "保留页码的原文、固定训练集与测试集"),
+        ("治 · 记录抽取", "按记录切分上下文，用 GLiNER 标注实体，再按证据生成关系", "工作、项目、教育记录及带引文的关系"),
+        ("存 · 图谱探索", "上下文消岐、同类型别名归并、Neo4j 持久化", "规范实体、双边消岐与防误并记录"),
+        ("算 · 规则画像", "从训练样本标定特征阈值，逐人计算命中项", "四维分数、训练快照和三份重点画像"),
+        ("用 · 岗位检索", "将中文条件转为 Cypher，测试集按硬条件过滤、按偏好排序", "严格命中、近似候选、前三人比较和原件入口"),
+    ])
+    if brief:
+        lines += ["![同心轨道下的训练子图与实体导览](同心轨道.png)", "",
+                  "## 实体消岐与共指消解", "",
+                  "简历里的 IBM 有时是雇主，有时出现在技术产品名称中。系统用局部词窗相似度（50%）、段落位置（30%）和同条记录里的实体（20%）给两种含义评分。只有两种含义都有训练原句和独立关系，才算验证了一组。", ""]
+        ibm = next(g for g in kg["disambiguation_groups"] if g["surface"] == "IBM")
+        lines += table(["来源页", "IBM 的原文", "图谱关系"], [
+            (f"{e['resume_id']} · p.{e['page_num']}", e['evidence_quote'], e['edge_type'])
+            for e in ibm["senses"]])
+        lines += [f"训练集验证了 {m[5]['verified_groups']} 组同名消岐，涉及 " + "、".join(m[5]["surfaces"]) +
+                  f"。共指消解则查找不同写法所指的同一实体。ML 与 Machine Learning 合为一项技能，C、C++ 和 C# 各自保留。"
+                  f"训练集确认 {m[5]['alias_groups']} 组跨文档别名。全量记录还识别出 {m[5]['reference_chains']} 处文内指代，第一人称指向候选人，机构或项目泛指需匹配本条记录中的先行实体。", "",
+                  "## 规则生成与重点画像", "",
+                  "对教育背景、工作经历、技能水平和发展潜力分别取四个可核查的特征。训练集的经验分位数决定命中门槛。例如技能水平考查实证技能数、实证占比、技能总数和覆盖类别。每项达标得 25 分，每维最高 100 分。", "",
+                  f"将训练样本从 {m[6]['snapshot_sizes'][0]} 份扩大到 {m[6]['snapshot_sizes'][1]} 份后，{m[6]['threshold_changes']} 条规则的阈值改变。固定的三位测试对象中，有 {m[6]['changed_anchors']} 人的得分或等级随之变化。", ""]
+        dims = ("EDU", "EXP", "SKL", "POT")
+        profiles = [read_json(PROCESSED/f"focus_profiles/{rid}.json") for rid in m[6]["focus_profiles"]]
+        lines += table(["重点简历", "教育", "经历", "技能", "潜力"], [
+            (r["resume_id"], *[f"{r['scores'][d]} / {r['grades'][d]}" for d in dims]) for r in profiles])
+        lines += ["## 岗位检索与三人比较", "", "主岗位需求为「" + main["query"] + "」", "",
+                  f"测试集中有 {m[7]['main']['strict']} 人满足全部硬条件，另有 {m[7]['main']['near']} 人列入近似候选。偏好条件用于排序。", ""]
+        lines += table(["严格命中前三人", "净工龄（月）", "项目数", "实证技能占比"], [
+            (r["resume_id"], r["merged_exp_months"], r["project_count"], f"{r['verified_skill_ratio']:.1%}")
+            for r in main["strict_matches"][:3]])
+        lines += ["![严格命中前三人的四维比较](../data/processed/query_reports/comparison.png)", "",
+                  "前两人的简历均包含 SQL 和项目记录；第三人的净工龄较长，抽取到的技能均有实证，但没有独立项目记录。"
+                  "面试时可以从项目职责、用到的技术和任职日期三个角度分别追问。", "",
+                  "对照需求为「" + zero["query"] + "」"
+                  f"严格命中 {m[7]['zero']['strict']} 人，近似候选 {m[7]['zero']['near']} 人。近似列表逐人说明缺少的硬条件。", "",
+                  "## 运行结果与材料", "",
+                  "文中的得分描述简历所提供的证据，并受训练样本构成和日期可解析程度影响。持续至今的经历按快照月折算，较早撰写的简历可能高估工龄。", "",
+                  "[五阶段运行录像](../demo_video/五阶段演示.mp4) · [完整规则、引文与 Cypher](技术说明文档.md) · [运行方法](../README.md) · [逐项验收](../data/processed/acceptance_report.json)", ""]
+        return "\n".join(lines)
+    lines = ["# " + title + "技术说明", "", *byline,
+             "本文件汇总完整的样本统计、双边引文、规则阈值与查询。业务操作流程见[项目说明](项目说明.md)。", ""]
+    lines += ["## 系统架构与复现", "",
              "```mermaid","flowchart LR","    A[原始 PDF] --> B[逐页抽取和两级去重]",
              "    B --> C[12 份试点与原文复核]","    C --> D[固定 60 / 20 快照]",
              "    D --> E[记录切分与 GLiNER 实体识别]","    E --> F[实体消岐与共指消解]",
@@ -37,7 +96,7 @@ def render(report):
              "技能词典补全易漏的短词和带符号语言。窗口输出落盘，改图谱算法时可复用。","",
              "从项目根目录执行 `.venv/bin/python scripts/verify_acceptance.py` 可独立核对原始 PDF、实时图库、规则与打包件。"
              "各阶段的重建命令见 [README](../README.md)。","",
-             "## 二、数据治理与试点","",
+             "## 数据治理与试点","",
              "输入来自公开数据集 [Mehyaar/Annotated_NER_PDF_Resumes](https://huggingface.co/datasets/Mehyaar/Annotated_NER_PDF_Resumes)。"
              "对归档 PDF 计算 SHA-256，逐页抽取后对 NFKC、空白及大小写规范化文本再计算 SHA-256。"
              "文本优先使用 PyMuPDF，提取出错或未返回文字时尝试 pdfplumber。",""]
@@ -57,7 +116,7 @@ def render(report):
               f"试点覆盖 {m[1]['pilot_count']} 份训练简历和 {m[1]['pilot_layout_signatures']} 种版式特征组合，"
               f"产生 {m[1]['pilot_records']} 条记录、{m[1]['pilot_edges']} 条关系。{review['note']}",
               "", "[试点逐记录核对表](../data/processed/pilot_audit.md) · [逐份抽查记录](../data/processed/pilot_review_notes.md)","",
-              "## 三、原文证据与图谱规模","",
+              "## 原文证据与图谱规模","",
               "项目、任职、学历三种记录分别保留页内和全文字符偏移。项目中的技术通过 APPLIED_SKILL 连边，任职中的技术使用 USED_SKILL。"
               "候选人 HAS_SKILL 的 source 区分 listed、work_verified 与 project_verified。仅技能表中的词只进入列举技能。"
               "每条关键关系保留简历编号、页码和最长 240 字符的引文，验收时重新读取 PDF 并检查原文及所属记录。","",
@@ -70,7 +129,11 @@ def render(report):
                  for kind in sorted(m[4]["all"][key])])
     lines+=["统计从对应 split 的 Candidate 出发，沿领域有向边向外最多两跳，以 DISTINCT 分别计数。跨集可共享技能、学校、公司等实体，全图计其并集。","",
             "![各口径节点分布](../data/processed/entity_distribution.png)","",
-            "## 四、同名消岐、别名和文内指代","",
+            "![Neo4j Browser 中候选人、三个项目与实证技能的网络图](Neo4j项目技能子图.png)","",
+            "图例取自主查询候选人 cv-486c4ba1bcae。WORKED_ON 连到三个独立项目，APPLIED_SKILL 连到各项目原文中出现的技能。下面的只读查询可复现截图。","",
+            "```cypher","MATCH p=(c:Candidate {resume_id:'cv-486c4ba1bcae'})-[:WORKED_ON]->(j:Project)",
+            "OPTIONAL MATCH q=(j)-[:APPLIED_SKILL]->(:Skill)","RETURN p, q","```","",
+            "## 实体消岐、别名归并与文内指代","",
             "消岐使用局部词窗、段落位置及同记录实体共现三类信号。词窗与义项上下文原型通过词频–逆文档频率向量的余弦相似度比较。"
             "综合分为 0.50 × 词窗相似度 + 0.30 × 段落先验 + 0.20 × 同记录一致性。只有训练原文支持两个真实目标且两条边都存在时，才计为一组。",""]
     for group in kg["disambiguation_groups"]:
@@ -88,7 +151,7 @@ def render(report):
         lines.append(f"- {c['resume_id']} p.{c['page_num']}　{cell(c['evidence_quote'])}　“{c['surface']}” 指向 {cell(c['canonical_name'])}。")
     lines+=["",f"以下 {m[5]['negative_controls']} 对技术名称在 Neo4j 中各保留两个目标节点。",""]
     lines+=table(["反例对","字符相似度","保护依据"],[(" / ".join(x["names"]),f"{x['similarity']:.3f}",x["reason"]) for x in coref["negative_controls"]])
-    lines+=["## 五、规则标定、同步实验与画像","",
+    lines+=["## 规则生成、同步实验与重点画像","",
             "特征来自带来源的教育、任职、项目与技能关系。最高学历排除简历中明确标为在读或预计授予的学位，仍保留该教育记录及状态引文。工龄按可解析的月份闭区间取并集；同时期兼职只计一次。"
             "实证占比用工作或项目中出现的去重技能数除以全部去重技能数，分母至少为一。职级成长按时间比较早期与后续职级。"
             "每个原子特征对应一条可执行规则。经验分位数取训练观测值，若分位为零则转用正值子集。每条命中计 25 分，"
@@ -105,10 +168,11 @@ def render(report):
         p=read_json(PROCESSED/f"focus_profiles/{rid}.json")
         lines += [f"**{rid}**　"+" ".join(p["analysis"]),"", f"[逐维规则与逐条原句](../data/processed/focus_profiles/{rid}.md)","",
                   f"![{rid} 四维雷达图](../data/processed/focus_profiles/{rid}.png)",""]
-    lines+=["## 六、测试集检索与三人比较","",
+    lines+=["## 测试集检索与三人比较","",
             f"主需求（{len(main['query'])} 字）为「{main['query']}」。严格命中 {len(main['strict_matches'])} 人，"
             f"近似候选 {len(main['near_misses'])} 人。零命中对照需求（{len(zero['query'])} 字）为「{zero['query']}」，"
             f"严格命中 {len(zero['strict_matches'])} 人，近似候选 {len(zero['near_misses'])} 人。","",
+            "自定义输入示例为「招聘高级软件开发工程师，本科及以上，掌握 Python 和 SQL，2年以上工作经验，有项目经验优先。」岗位名称用于说明，后续分句明确学历、技能、年限与偏好。","",
             "每个必选技能组内部取或，组间取且。学历和净任职月数为硬门槛。偏好技能、项目或实证占比只影响排序。以下为主查询可在 Neo4j Browser 中执行的 Cypher。","",
             "```cypher",main["browser_cypher"],"```",""]
     lines+=table(["主查询 Top-3","教育","经历","技能","潜力","项目","实证技能占比"],[(c["resume_id"],*[f"{c['scores'][d]} / {c['grades'][d]}" for d in dims],c["project_count"],f"{c['verified_skill_ratio']:.1%}") for c in main["strict_matches"][:3]])

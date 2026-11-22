@@ -87,10 +87,13 @@ def _replace(tx, nodes, edges, token):
     if foreign is not None:
         raise ValueError("A foreign graph already uses a required ResumeKG identifier")
     for label, rows in nodes.items():
+        # Record indices may change domain type after improved segmentation.
+        obsolete_labels = ":".join(sorted(LABELS - {label}))
         for i in range(0, len(rows), 500):
             tx.run(f"""
-                UNWIND $rows AS row MERGE (n:ResumeKG:{label} {{id:row.id}})
-                SET n = row.props, n.id=row.id, n.kg_owner=$owner, n.kg_snapshot=$token
+                UNWIND $rows AS row MERGE (n:ResumeKG {{id:row.id}})
+                REMOVE n:{obsolete_labels}
+                SET n:{label}, n = row.props, n.id=row.id, n.kg_owner=$owner, n.kg_snapshot=$token
                 """, rows=rows[i:i+500], owner=OWNER, token=token).consume()
     for rel, rows in edges.items():
         for i in range(0, len(rows), 500):

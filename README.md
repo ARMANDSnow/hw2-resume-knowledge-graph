@@ -2,7 +2,7 @@
 
 丁宇轩（524031910745）独立完成，贡献比例 100%。本项目把原始英文简历逐页转为带引文的 Neo4j 知识图谱，用训练集标定四维规则，再在独立测试集进行中文岗位查询。
 
-[技术说明与实测数据](docs/技术说明文档.md) · [逐项验收 JSON](data/processed/acceptance_report.json) · [12 份试点](data/processed/pilot_audit.md) · [三人对比](data/processed/query_reports/comparison.md) · [五阶段演示视频](demo_video/五阶段演示.mp4)
+[项目说明](docs/项目说明.md) · [技术说明与实测数据](docs/技术说明文档.md) · [逐项验收 JSON](data/processed/acceptance_report.json) · [12 份试点](data/processed/pilot_audit.md) · [三人对比](data/processed/query_reports/comparison.md) · [五阶段演示视频](demo_video/五阶段演示.mp4)
 
 ## 用提交包复核
 
@@ -53,7 +53,9 @@ docker compose up -d
 
 打开[五阶段演示](http://localhost:8501)。侧栏选择的简历联动「采 · 数据采集」和「治 · 记录抽取」。在原文阅读区切换 PDF 页码，在抽取页选择记录并核对同条记录的实体与引文。窄屏可用左上角按钮打开侧栏。
 
-在「存 · 图谱探索」搜索节点，或用节点选择框查看关联关系和原文。切换到「算 · 规则画像」可比较训练快照与候选人评级。在「用 · 岗位检索」切换主查询、零命中示例或自定义需求，查看严格命中、近似候选缺项及三人对比。展开查询详情可复制 Cypher 到 Neo4j Browser 独立复核。
+「存 · 图谱探索」默认显示同心轨道。可搜索实体或点击右侧导览，查看相邻节点、关系和原文。切换到「算 · 规则画像」可比较训练快照与候选人评级。在「用 · 岗位检索」切换主查询、零命中示例或自定义需求，查看严格命中、近似候选缺项及三人对比。展开查询详情可复制 Cypher 到 Neo4j Browser 独立复核。[项目与实证技能子图](docs/Neo4j项目技能子图.png)
+
+自定义检索可输入「招聘高级软件开发工程师，本科及以上，掌握 Python 和 SQL，2年以上工作经验，有项目经验优先。」岗位抬头仅说明招聘目标。学历、技能、年限和排序偏好分别写在后续条件分句中。
 
 ```cypher
 MATCH p=(c:Candidate:ResumeKG {split:'train'})-[:HAS_EXPERIENCE]->(w:WorkExperience)-[:USED_SKILL]->(s:Skill)

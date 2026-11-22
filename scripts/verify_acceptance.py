@@ -20,6 +20,7 @@ NAME = "ISM2026HW2-524031910745丁宇轩"
 PACKAGE = ROOT / "dist" / (NAME + ".zip")
 AC = PROCESSED / "acceptance_report.json"
 DOC = ROOT / "docs/技术说明文档.md"
+BRIEF = ROOT / "docs/项目说明.md"
 
 
 def require(condition, reason):
@@ -159,6 +160,25 @@ class Audit:
                     require((p["record_id"],e["target"],p["evidence_quote"],rel) in verified,
                             "实证 HAS_SKILL 缺少对应记录边 "+p["record_id"])
             valid += bool(p["evidence_valid"] and self.quote_ok(p))
+        # A fixed PDF with bold inline project headings and a corrupt date delimiter.
+        example = "cv-486c4ba1bcae"
+        if example in self.docs:
+            jobs = self.rows("MATCH (:Candidate {id:$rid,kg_owner:$owner})-[:HAS_EXPERIENCE]->(w) "
+                             "RETURN w.start_ym AS start,w.end_ym AS end",rid=example)
+            require({(r["start"],r["end"]) for r in jobs} ==
+                    {("2013-06","2026-11"),("2014-05","2015-05"),("2013-12","2014-05")}
+                    and self.cand[example]["merged_exp_months"]==162,"三段任职的乱码日期或并集月数回归")
+            result = self.rows("MATCH (:Candidate {id:$rid,kg_owner:$owner})-[:WORKED_ON]->(p) "
+                               "OPTIONAL MATCH (p)-[:APPLIED_SKILL]->(s) "
+                               "RETURN p.name AS title, collect(DISTINCT s.name) AS skills",rid=example)
+            projects = {r["title"]:set(r["skills"]) for r in result}
+            require(len(result)==3 and set(projects)=={"Unix system programming","Parallel Apriori","Leave management system"},
+                    "加粗的行内项目标题未独立建图")
+            web_skills = {"AngularJS","Oracle 11g","Spring Framework"}
+            require({"C","Linux"} <= projects["Unix system programming"] and "Apriori" in projects["Parallel Apriori"]
+                    and web_skills <= projects["Leave management system"]
+                    and not web_skills & (projects["Unix system programming"] | projects["Parallel Apriori"]),
+                    "本地系统编程或请假系统的项目技能归属错误")
         require(valid/len(relevant)>=.95, "引文校验率低于 95%")
         return dict(records=len(records),gliner_mentions=mentions,
                     key_edges=len(relevant),valid_quotes=valid,quote_valid_rate=valid/len(relevant),
@@ -266,6 +286,13 @@ class Audit:
             p=read_json(path)
             rid=p["resume_id"]
             png(path.with_suffix(".png"))
+            md = path.with_suffix(".md").read_text()
+            anchors = re.findall(r'<a id="(e[0-9]+)"></a>',md)
+            refs = re.findall(r'\[E[0-9]+\]\(#(e[0-9]+)\)',md)
+            unique_evidence = {(e["page_num"],e.get("record_id")," ".join(e["evidence_quote"].split()))
+                               for examples in p["rule_evidence"].values() for e in examples}
+            require(len(anchors)==len(set(anchors))==len(unique_evidence) and set(anchors)==set(refs),
+                    "画像证据未合并或原句链接失效 "+rid)
             require(path.with_suffix(".md").is_file() and path.stem==rid and p["scores"]==evaluate(index[rid]["features"],model)["scores"]
                     and set(p["rule_evidence"])==set(self.cand[rid]["hit_rules"]) and all(evs and all(self.quote_ok(e,rid)
                     for e in evs) for evs in p["rule_evidence"].values()), "画像内容、引文或雷达图不符 "+rid)
@@ -275,7 +302,10 @@ class Audit:
                     changed_anchors=different,focus_profiles=[p.stem for p in profiles])
 
     def ac7(self):
-        from src.stage5_query import execute_query, MAIN_QUERY, ZERO_QUERY
+        from src.stage5_query import execute_query, parse_query, MAIN_QUERY, ZERO_QUERY
+        clauses = "本科及以上，掌握 Python 和 SQL，2年以上工作经验，有项目经验优先。"
+        require(parse_query("招聘高级软件开发工程师，"+clauses)==parse_query(clauses)
+                and parse_query(clauses)["must_skills"]==[["Python"],["SQL"]], "岗位抬头改变了实际筛选条件")
         evidence = {k:set() for k in self.cand}
         nodes={n["id"]:n["properties"]["name"] for n in self.kg["nodes"]}
         for e in self.edges:
@@ -363,12 +393,15 @@ def main():
         try:
             from technical_report import render
             expected=render(result)
+            brief=render(result, brief=True)
             if args.publish:
                 DOC.parent.mkdir(exist_ok=True)
                 DOC.write_text(expected,encoding="utf-8")
+                BRIEF.write_text(brief, encoding="utf-8")
                 write_json(AC,result)
                 subprocess.run(["bash","scripts/package_submission.sh"],cwd=ROOT,check=True)
             require(DOC.read_text(encoding="utf-8")==expected,"技术说明与当前实测结果不一致")
+            require(BRIEF.read_text(encoding="utf-8")==brief, "项目说明与当前实测结果不一致")
             metrics=check_package()
             result["checks"]["AC-8"]={"status":"PASS","metrics":metrics}
         except Exception as exc:

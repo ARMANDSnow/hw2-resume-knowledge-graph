@@ -4,18 +4,18 @@ from __future__ import annotations
 import html
 
 NODE_COLORS = {
-    "Candidate": "#284B63",       # Quartz signature deep slate-teal
-    "Skill": "#247A6E",           # Botanical sage-teal
-    "WorkExperience": "#446699",  # Steel indigo
-    "Company": "#765094",         # Muted editorial plum
-    "Project": "#C45B38",         # Warm terracotta (harmonized with HW1 pick!)
-    "Education": "#B54B63",       # Dusty rose
-    "University": "#2D7888",      # Deep lagoon
-    "JobTitle": "#B07824",        # Warm ochre
+    "Candidate": "#344862",
+    "Skill": "#277968",
+    "WorkExperience": "#627E98",
+    "Company": "#827296",
+    "Project": "#A96E53",
+    "Education": "#A27782",
+    "University": "#607D82",
+    "JobTitle": "#967947",
 }
 
 NODE_LABELS_ZH = {
-    "Candidate": "候选人",
+    "Candidate": "简历（CV）",
     "Skill": "技能",
     "WorkExperience": "工作经历",
     "Company": "企业",
@@ -96,7 +96,6 @@ def theme_css() -> str:
 .kg-mast {padding:0 0 .25rem}
 .kg-mast-row {display:flex;align-items:center;justify-content:space-between;gap:1rem}
 .kg-mast h1 {font:700 clamp(1.9rem,3.1vw,3.05rem)/1.22 var(--serif);letter-spacing:-.035em;color:var(--ink-primary);padding:.2rem 0 .45rem;margin:0}
-.kg-byline {color:var(--ink-muted);font-size:.81rem;margin-bottom:1.15rem}
 .kg-status {display:inline-flex;align-items:center;gap:.44rem;background:#e7efe5;color:#28543b;border:1px solid #cfdccc;
   padding:.28rem .63rem;font-size:.74rem;white-space:nowrap;border-radius:5px}
 .kg-status::before {content:"";width:7px;height:7px;background:#3e7854;border-radius:100%}
@@ -167,7 +166,6 @@ def hero_banner_html(stats: dict, acceptance: dict, online: bool) -> str:
     return (
         '<header class="kg-mast"><div class="kg-mast-row"><h1>简历知识图谱</h1>'
         f'<span class="kg-status {variant}">{status}</span></div>'
-        '<div class="kg-byline">智能信息系统建模　/　作业 02　·　丁宇轩</div>'
         f'<dl class="kg-facts">{"".join(cells)}</dl></header>'
     )
 

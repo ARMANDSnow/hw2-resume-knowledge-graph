@@ -55,355 +55,119 @@ def render_funnel_html(manifest: dict) -> str:
         ("近重复过滤", eligible - near, f"排除 {near:,} 份近重复简历"),
         ("固定快照", splits["train"] + splits["test"], f'训练 {splits["train"]} · 测试 {splits["test"]}'),
     ]
-    shades = ["#b4c9b6", "#95b39a", "#729980", "#527f62", "#366548"]
-    cells, markers, bands = [], [], []
-    for index, (label, count, desc) in enumerate(stages):
-        share = count / max(total, 1)
-        x = 100 + index * 200
-        thickness = 50 * share
-        cells.append(f'<li data-label="{label}" data-share="{share:.2%}"><h3>{label}</h3>'
-                     f'<strong>{count:,}</strong><span>{desc}</span></li>')
-        if index < len(stages) - 1:
-            next_thickness = 50 * stages[index + 1][1] / max(total, 1)
-            points = f'{x},{31-thickness/2:.2f} {x+200},{31-next_thickness/2:.2f} {x+200},{31+next_thickness/2:.2f} {x},{31+thickness/2:.2f}'
-            bands.append(f'<polygon points="{points}" fill="{shades[index]}" opacity=".8"/>')
-        markers.append(f'<circle cx="{x}" cy="31" r="4" fill="{shades[index]}" stroke="#315740" stroke-width="1.5"/>')
-    chart = ('<svg class="ribbon" viewBox="0 0 1000 62" preserveAspectRatio="none" aria-hidden="true">'
-             '<line x1="100" x2="900" y1="31" y2="31" stroke="#648771"/>'
-             + ''.join(bands + markers) + '</svg>')
+    cards, streams, guides, stations = [], [], [], []
+    half_widths = [28 * count / max(total, 1) for _, count, _ in stages]
+    for i, (label, count, desc) in enumerate(stages):
+        x = 100 + 200 * i
+        guides.append(f'<path class="guide" d="M{x} 7V79"/>')
+        stations.append(f'<g class="station" transform="translate({x} 46)">'
+                        '<circle class="halo" r="10"/><circle class="pin" r="3.6"/></g>')
+        cards.append(f'<li data-share="{count / max(total, 1):.2%}">'
+                     f'<h3>{label}</h3><strong>{count:,}</strong><span>{desc}</span></li>')
+        if i == len(stages) - 1:
+            continue
+        w, next_w = half_widths[i:i + 2]
+        # Split the incoming band into a retained lower stream and an upper exit.
+        top, middle, bottom = 46 - w, 46 + w - 2 * next_w, 46 + w
+        end_top, end_bottom = 46 - next_w, 46 + next_w
+
+        def curve(start_y, end_y):
+            return f'M{x},{start_y:.2f} C{x+88},{start_y:.2f} {x+112},{end_y:.2f} {x+200},{end_y:.2f}'
+
+        if w > next_w:
+            exit_band = (f'M{x},{top:.2f} C{x+75},{top:.2f} {x+86},6 {x+153},6 '
+                         f'C{x+95},9 {x+78},{middle:.2f} {x},{middle:.2f}Z')
+            streams.append(f'<path fill="url(#exit-ink)" d="{exit_band}"/>')
+        retained = (curve(middle, end_top) + f' L{x+200},{end_bottom:.2f} '
+                    f'C{x+112},{end_bottom:.2f} {x+88},{bottom:.2f} {x},{bottom:.2f}Z')
+        streams.append(f'<path fill="url(#river-ink)" d="{retained}"/>')
+        for fraction in (.25, .5, .75):
+            strand = curve(middle + 2 * next_w * fraction, end_top + 2 * next_w * fraction)
+            streams.append(f'<path class="strand" d="{strand}"/>')
+    chart = ('<svg class="flow" viewBox="0 0 1000 84" preserveAspectRatio="none" aria-hidden="true"><defs>'
+             '<linearGradient id="river-ink" gradientUnits="userSpaceOnUse" x1="100" x2="900">'
+             '<stop stop-color="#aecbb4"/><stop offset=".5" stop-color="#548772"/><stop offset="1" stop-color="#285c48"/></linearGradient>'
+             '<linearGradient id="exit-ink"><stop stop-color="#d5c5a1"/><stop offset="1" stop-color="#e4d5b5" stop-opacity=".24"/></linearGradient>'
+             '<clipPath id="sweep"><rect id="reveal" width="1000" height="84"/></clipPath>'
+             '<g id="streams">' + ''.join(streams) + '</g></defs>' + ''.join(guides)
+             + '<use href="#streams" opacity=".18"/><use href="#streams" clip-path="url(#sweep)"/>'
+             + ''.join(stations) + '</svg>')
     css = """
-main{display:flex;flex-direction:column;justify-content:center}header{margin-bottom:6px}.ribbon{display:block;height:56px;width:100%;flex:none}
-ol{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));padding:0;list-style:none;margin:0}
-li{min-width:0;padding:6px 10px 8px;border-top:2px solid #d3dfd1;transition:background-color .23s}li+li{border-left:1px solid var(--line)}
-li.current{background:#e8f0e5;border-top-color:var(--green)}.ribbon circle.current{r:6;fill:var(--green)}
-strong{display:block;font-variant-numeric:tabular-nums;font-size:clamp(21px,2.7vw,30px);font-weight:650;color:var(--green);margin:3px 0}
-li span,#status{color:var(--muted);font-size:12px}#status{margin:7px 0 0;text-align:right;font-variant-numeric:tabular-nums}
-@media(max-width:680px){main{justify-content:flex-start}header{margin-bottom:2px}.ribbon{height:20px}ol{display:block}li,li+li{padding:3px 1px;border:0;border-bottom:1px solid var(--line);display:grid;align-items:center;gap:3px 7px;grid-template-columns:76px 51px 1fr}li strong{font-size:17px;margin:0}li h3,li span{font-size:11px}#status{margin-top:3px}}
+main{display:flex;flex-direction:column;justify-content:center;padding:16px 20px}
+header{margin-bottom:7px}#replay{display:inline-flex;gap:5px;align-items:center;color:var(--green);border-radius:18px;padding:3px 12px}
+#replay svg{width:14px;height:14px}.flow{width:100%;height:76px;display:block;background:linear-gradient(#fafbf7,#f5f8f3);border-radius:6px 6px 0 0;flex:none}
+.guide{stroke:#cdd8ca;stroke-width:1;stroke-dasharray:2 4}.strand{fill:none;stroke:#44745c;stroke-opacity:.48;stroke-width:.85;vector-effect:non-scaling-stroke}
+.halo{fill:#518f70;opacity:0}.pin{fill:#fff;stroke:#638972;stroke-width:1.6}
+.station.done .pin,.station.active .pin{fill:var(--green);stroke:white}.station.active .halo{opacity:.22;animation:breathe 1s ease-out infinite}
+@keyframes breathe{from{transform:scale(.55);opacity:.36}to{transform:scale(1.35);opacity:0}}
+ol{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));padding:0;list-style:none;margin:0;background:#fafbf8}
+li{position:relative;min-width:0;padding:11px 10px 12px;border-top:2px solid #cbd9cc;transition:background .25s}
+li+li{border-left:1px solid #dde5da}li.active{background:#e6f0e5}li.done,li.active{border-top-color:#638d71}
+li strong{display:block;color:var(--green);font:650 clamp(22px,2.7vw,30px)/1.28 'Inter',system-ui,sans-serif;font-variant-numeric:tabular-nums;margin:3px 0}
+li span,footer{font-size:12px;color:var(--muted)}footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:5px 10px;margin-top:9px}
+.legend{display:flex;gap:12px}.legend span{display:inline-flex;align-items:center;gap:5px}.legend i{width:13px;height:3px;border-radius:3px;background:#63947b}.legend .exit{background:#c8b690}
+#status{font-variant-numeric:tabular-nums}
+@media(max-width:680px){main{padding:10px;justify-content:flex-start}header{margin-bottom:4px}.flow{height:39px}ol{display:block}
+li,li+li{display:grid;align-items:center;grid-template-columns:70px 53px 1fr;gap:5px;padding:4px 6px;border:0;border-left:2px solid #d3dfd3;border-bottom:1px solid #e2e9df}
+li.done,li.active{border-left-color:#638d71}li h3,li span{font-size:11px}li strong{font-size:17px;margin:0}footer{font-size:11px;margin-top:6px}.legend{gap:7px}}
 """
     script = """
-const stages=[...document.querySelectorAll('li')], dots=[...document.querySelectorAll('circle')],statusLine=document.getElementById('status');
-let timer=null;
-function show(i){
- stages.forEach((el,j)=>{el.classList.toggle('current',i===j);dots[j].classList.toggle('current',i===j)});
- statusLine.textContent=stages[i].dataset.label+' · 占原始语料 '+stages[i].dataset.share;
+const cards = [...document.querySelectorAll('li')], stations = [...document.querySelectorAll('.station')];
+const reveal = document.querySelector('#reveal'), statusLine = document.querySelector('#status');
+const motion = matchMedia('(prefers-reduced-motion: reduce)');
+const last = cards.length - 1, stepTime = 850, endPause = 480;
+let frame = 0, active = null;
+function mark(index) {
+  if (active === index) return;
+  active = index;
+  cards.forEach((card, i) => {
+    for (const item of [card, stations[i]]) {
+      item.classList.toggle('active', i === index);
+      item.classList.toggle('done', index < 0 || i < index);
+    }
+  });
+  const card = cards[index < 0 ? last : index];
+  statusLine.textContent = card.querySelector('h3').textContent + ' · 留存 ' + card.dataset.share;
 }
-document.getElementById('replay').onclick=()=>{
- clearTimeout(timer);
- if(matchMedia('(prefers-reduced-motion: reduce)').matches){show(stages.length-1);return}
- const step=i=>{show(i);if(i+1<stages.length)timer=setTimeout(()=>step(i+1),850)};
- step(0);
-};
-document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(timer);show(stages.length-1)}});
+function finish() {
+  cancelAnimationFrame(frame);
+  reveal.setAttribute('width', 1000);
+  mark(-1);
+}
+function play() {
+  cancelAnimationFrame(frame);
+  if (motion.matches || document.hidden) { finish(); return; }
+  const start = performance.now();
+  function draw(now) {
+    const elapsed = now - start, index = Math.min(last, Math.floor(elapsed / stepTime));
+    if (elapsed >= last * stepTime + endPause) { finish(); return; }
+    mark(index);
+    const t = Math.min(1, Math.max(0, (elapsed / stepTime - index - .18) / .82));
+    const ease = t * t * (3 - 2 * t);
+    reveal.setAttribute('width', 100 + 200 * Math.min(last, index + ease));
+    frame = requestAnimationFrame(draw);
+  }
+  draw(start);
+}
+const observer = new IntersectionObserver(entries => {
+  if (entries.some(entry => entry.isIntersecting)) { observer.disconnect(); play(); }
+});
+observer.observe(document.querySelector('.flow'));
+document.querySelector('#replay').onclick = () => { observer.disconnect(); play(); };
+document.addEventListener('visibilitychange', () => { if (document.hidden) finish(); });
+motion.addEventListener('change', () => { if (motion.matches) finish(); });
 """
     final_share = stages[-1][1] / max(total, 1)
-    content = ('<header><h2>样本筛选</h2><button id="replay">重播筛选</button></header>' + chart
-               + '<ol>' + ''.join(cells) + '</ol>'
-               + f'<p id="status" role="status">固定快照 · 占原始语料 {final_share:.2%}</p>')
+    content = ('<header><h2>样本筛选</h2><button id="replay" type="button">'
+               '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">'
+               '<path d="M3 6a5 5 0 1 1 .4 5M3 2.5V6h3.5"/></svg>重播筛选</button></header>'
+               + chart + '<ol>' + ''.join(cards) + '</ol>'
+               + '<footer><div class="legend"><span><i></i>保留</span><span><i class="exit"></i>筛出</span></div>'
+               + f'<span id="status">固定快照 · 留存 {final_share:.2%}</span></footer>')
     return _document("样本筛选", content, css, script)
 
 
-def _build_graph_payload(resolved_kg: dict, scope: str = "train", max_nodes: int = 160, focus_resume: str | None = None) -> dict:
-    nodes_by_id = {n["id"]: n for n in resolved_kg.get("nodes", [])}
-    edges = resolved_kg.get("edges", [])
-
-    if focus_resume:
-        rel_edges = [e for e in edges if e.get("properties", {}).get("resume_id") == focus_resume]
-        node_ids = set()
-        for e in rel_edges:
-            node_ids.add(e["source"])
-            node_ids.add(e["target"])
-        node_ids.add(focus_resume)
-    else:
-        cand_ids = {
-            n["id"]
-            for n in resolved_kg.get("nodes", [])
-            if n["label"] == "Candidate" and (scope == "all" or n.get("properties", {}).get("split") == scope)
-        }
-        rel_edges = [e for e in edges if e.get("properties", {}).get("resume_id") in cand_ids]
-        deg = Counter()
-        for e in rel_edges:
-            deg[e["source"]] += 1
-            deg[e["target"]] += 1
-
-        # Preserve the less frequent entity types in the sampled view.
-        by_label: dict[str, list[str]] = {}
-        for nid in deg:
-            if nid in nodes_by_id:
-                by_label.setdefault(nodes_by_id[nid]["label"], []).append(nid)
-        for lst in by_label.values():
-            lst.sort(key=lambda nid: (-deg[nid], nid))
-
-        quotas = {
-            "Candidate": max(12, int(max_nodes * 0.16)),
-            "Skill": max(24, int(max_nodes * 0.28)),
-            "Company": max(12, int(max_nodes * 0.10)),
-            "Project": max(12, int(max_nodes * 0.10)),
-            "University": max(10, int(max_nodes * 0.08)),
-            "JobTitle": max(12, int(max_nodes * 0.10)),
-            "WorkExperience": max(12, int(max_nodes * 0.10)),
-            "Education": max(8, int(max_nodes * 0.08)),
-        }
-        node_ids = set()
-        for lbl, quota in quotas.items():
-            node_ids.update(by_label.get(lbl, [])[:quota])
-        # Fill up to max_nodes by highest degree
-        if len(node_ids) < max_nodes:
-            for nid, _ in deg.most_common():
-                if nid in nodes_by_id:
-                    node_ids.add(nid)
-                if len(node_ids) >= max_nodes:
-                    break
-        rel_edges = [e for e in rel_edges if e["source"] in node_ids and e["target"] in node_ids]
-        # Remove isolated nodes after filtering
-        connected = set()
-        for e in rel_edges:
-            connected.add(e["source"])
-            connected.add(e["target"])
-        node_ids &= connected
-
-    deg_final = Counter()
-    dedup_edges = []
-    seen_e = set()
-    for e in rel_edges:
-        k = (e["source"], e["target"], e["type"])
-        if k in seen_e:
-            continue
-        seen_e.add(k)
-        deg_final[e["source"]] += 1
-        deg_final[e["target"]] += 1
-        p = e.get("properties", {})
-        dedup_edges.append({
-            "source": e["source"],
-            "target": e["target"],
-            "type": e["type"],
-            "resume_id": p.get("resume_id", ""),
-            "page_num": p.get("page_num", ""),
-            "source_kind": p.get("source", ""),
-            "quote": (p.get("evidence_quote") or "")[:200],
-        })
-
-    out_nodes = []
-    for nid in sorted(node_ids):
-        n = nodes_by_id.get(nid)
-        if not n:
-            continue
-        props = n.get("properties", {})
-        raw_name = props.get("name") or props.get("title") or props.get("degree") or nid
-        short = str(raw_name)
-        if len(short) > 26:
-            short = short[:24] + "…"
-        out_nodes.append({
-            "id": nid,
-            "label": n["label"],
-            "label_zh": NODE_LABELS_ZH.get(n["label"], n["label"]),
-            "name": str(raw_name),
-            "short": short,
-            "color": NODE_COLORS.get(n["label"], "#94A3B8"),
-            "degree": deg_final[nid],
-            "aliases": props.get("aliases", [])[:8],
-            "split": props.get("split", ""),
-            "is_center": bool(focus_resume and nid == focus_resume),
-        })
-
-    return {
-        "nodes": out_nodes,
-        "edges": dedup_edges,
-        "colors": NODE_COLORS,
-        "labels_zh": NODE_LABELS_ZH,
-        "focus_mode": bool(focus_resume),
-    }
-
-
-def render_force_graph_html(resolved_kg: dict, scope: str = "train", max_nodes: int = 160, focus_resume: str | None = None, height: int = 600) -> str:
-    payload = _build_graph_payload(resolved_kg, scope=scope, max_nodes=max_nodes, focus_resume=focus_resume)
-    title = "简历关联图" if focus_resume else f"{scope.upper()} · 图谱样本"
-    content = f"""
-<header><div><h2>{html.escape(title)}</h2><small id="counter"></small></div>
-<div class="controls"><label class="sr-only" for="search">搜索节点</label><input id="search" type="search" placeholder="搜索技能、机构或简历">
-<button id="pulseBtn" aria-pressed="false">关系流向</button><button id="pauseBtn">暂停布局</button>
-<button id="reheatBtn">重排</button><button id="resetBtn">居中</button></div></header>
-<div class="plot"><canvas id="g" aria-label="关系图，方向键移动，减号或加号缩放" tabindex="0"></canvas></div>
-<aside><label for="nodepick">节点详情</label><select id="nodepick"><option value="">选择节点</option></select>
-<div id="inspector" aria-live="polite"></div></aside>
-<div class="legend" id="legend" role="group" aria-label="显示的实体类别"></div>"""
-    css = """
-main{padding:0;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr) minmax(165px,25%);grid-template-rows:auto minmax(0,1fr) auto}
-header{grid-column:1/-1;border-bottom:1px solid var(--line);padding:10px 14px;margin:0}.controls input{width:150px;min-width:0}
-.plot{position:relative;min-height:0;min-width:0;grid-row:2;background:#fbfcf9}canvas{width:100%;height:100%;display:block;touch-action:none;cursor:grab}
-aside{grid-column:2;grid-row:2/4;border-left:1px solid var(--line);padding:12px;overflow:auto;min-width:0}
-aside label{display:block;color:var(--green);font-weight:650}select{width:100%;margin:5px 0 10px}.ins-head,.ins-sub,.ins-rel{font:11px/1.5 ui-monospace,monospace;color:var(--muted);overflow-wrap:anywhere}.ins-name{font-size:15px;font-weight:650;overflow-wrap:anywhere}.ins-quote{font-size:12px;border-top:1px solid var(--line);margin-top:6px;padding-top:6px;overflow-wrap:anywhere}.ins-badge{padding:2px 5px;border-radius:3px}.hint{font-size:12px;color:var(--muted)}.legend{padding:6px 9px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:4px}.leg-item{display:inline-flex;gap:5px;align-items:center;min-height:27px;padding:2px 6px}.leg-item[aria-pressed=true]{background:#f1f5ef;color:var(--ink);border-color:#a8b9ac}.leg-item.off{color:#67736a;text-decoration:line-through}.leg-item.off i{background:transparent!important}.leg-item i{width:9px;height:9px;border-radius:50%;border:1px solid currentColor}
-@media(max-width:620px){main{grid-template-columns:1fr;grid-template-rows:auto minmax(90px,1fr) auto minmax(80px,22%)}header{padding:7px 9px;gap:4px}header h2{font-size:14px}.controls{gap:4px}.controls input{width:126px}.controls button{font-size:11px;padding:2px 6px}.legend{grid-row:3}.leg-item{font-size:11px;min-height:24px}aside{grid-column:1;grid-row:4;border-left:0;border-top:1px solid var(--line);padding:6px 9px}aside label{display:inline;margin-right:6px}aside select{width:min(65%,270px);margin:0 0 5px}}
-"""
-    script = "const RAW=" + _safe_json(payload) + ";\n" + _GRAPH_SCRIPT
-    return _document(title, content, css + f"main{{height:min(100vh,{int(height)}px)}}", script)
-
-
-_GRAPH_SCRIPT = r'''const $=id=>document.getElementById(id);
-const canvas=$('g'), ctx=canvas.getContext('2d'), motion=matchMedia('(prefers-reduced-motion: reduce)');
-const nodes=RAW.nodes.map((n,i)=>{
-  const angle=i*2.39996, radius=n.is_center?0:22+Math.sqrt(i)*24;
-  return {...n,x:radius*Math.cos(angle),y:radius*Math.sin(angle),r:n.is_center?12:Math.min(12,4+Math.sqrt(n.degree)*1.5),vx:0,vy:0};
-});
-const byId=new Map(nodes.map(n=>[n.id,n]));
-const edges=RAW.edges.map((e,i)=>({...e,s:byId.get(e.source),t:byId.get(e.target),offset:(i*.381966)%1}));
-const hiddenLabels=new Set(), links=new Map(nodes.map(n=>[n.id,[]]));
-edges.forEach(e=>{links.get(e.s.id).push(e);links.get(e.t.id).push(e)});
-let W=0,H=0, cam={x:0,y:0,s:.8}, running=!motion.matches, alphaSim=1, pulses=false, visible=true, frame=0;
-let selected=null,hovered=null,dragging=null,last=null;
-function request(){if(!frame&&visible&&!document.hidden)frame=requestAnimationFrame(draw)}
-function fit(){
- const shown=nodes.filter(n=>!hiddenLabels.has(n.label));
- const xs=shown.map(n=>n.x),ys=shown.map(n=>n.y);
- const xmin=Math.min(0,...xs),xmax=Math.max(0,...xs),ymin=Math.min(0,...ys),ymax=Math.max(0,...ys);
- cam={x:-(xmin+xmax)/2,y:-(ymin+ymax)/2,s:Math.max(.18,Math.min(1.8,(W-45)/(xmax-xmin+40),(H-40)/(ymax-ymin+40)))};
- request();
-}
-function resize(){
- const r=canvas.getBoundingClientRect(),ratio=Math.min(devicePixelRatio||1,2);
- W=r.width;H=r.height;canvas.width=Math.round(W*ratio);canvas.height=Math.round(H*ratio);ctx.setTransform(ratio,0,0,ratio,0,0);fit();
-}
-function note(tag,cls,txt){const el=document.createElement(tag);el.className=cls;el.textContent=txt;return el}
-const inspector=$('inspector'), picker=$('nodepick'),search=$('search');
-function select(n){
- selected=n;picker.value=n?n.id:'';inspector.replaceChildren();
- if(!n){inspector.append(note('p','hint','选择节点查看关系与原文。拖动图面平移，滚轮缩放。'));request();return}
- inspector.append(note('b','ins-head',n.label_zh+' · '+n.degree+' 条关联'),note('div','ins-name',n.name),note('code','ins-sub',n.id));
- if(n.aliases.length>1)inspector.append(note('p','ins-sub',n.aliases.join(' / ')));
- const rels=links.get(n.id);
- for(const e of rels.slice(0,6)){
-  const other=e.s===n?e.t:e.s, box=note('div','ins-quote','');
-  box.append(note('div','ins-rel',(e.s===n?'→ ':'← ')+other.short+' · '+e.type),
-             note('small','muted',e.resume_id+' · 第 '+(e.page_num||'?')+' 页'),note('p','',e.quote||''));
-  inspector.append(box);
- }
- request();
-}
-function options(){
- const term=search.value.trim().toLowerCase();
- const available=nodes.filter(n=>!hiddenLabels.has(n.label)&&(!term||(n.name+' '+n.id).toLowerCase().includes(term)));
- picker.replaceChildren(new Option(available.length?'选择节点':'没有匹配节点',''));
- for(const n of available)picker.add(new Option(n.label_zh+' · '+n.name,n.id));
- if(selected&&available.includes(selected))picker.value=selected.id;
- return available;
-}
-picker.onchange=()=>select(byId.get(picker.value)||null);
-search.oninput=()=>{const matches=options();select(search.value.trim()?matches[0]||null:null)};
-const counts={};
-for(const n of nodes)counts[n.label]=(counts[n.label]||0)+1;
-for(const label of Object.keys(counts)){
- const btn=note('button','leg-item',''),dot=document.createElement('i');dot.style.background=RAW.colors[label];
- btn.append(dot,document.createTextNode(RAW.labels_zh[label]+' '+counts[label]));btn.setAttribute('aria-pressed','true');
- btn.onclick=()=>{if(hiddenLabels.has(label))hiddenLabels.delete(label);else hiddenLabels.add(label);
-  const on=!hiddenLabels.has(label);btn.classList.toggle('off',!on);btn.setAttribute('aria-pressed',String(on));
-  if(selected?.label===label&&!on)select(null);hovered=null;options();request()};
- $('legend').append(btn);
-}
-$('counter').textContent=nodes.length+' 个节点 · '+edges.length+' 条关系';
-function xy(e){const r=canvas.getBoundingClientRect();return [(e.clientX-r.left-W/2)/cam.s-cam.x,(e.clientY-r.top-H/2)/cam.s-cam.y]}
-function hit(x,y){return nodes.find(n=>!hiddenLabels.has(n.label)&&Math.hypot(n.x-x,n.y-y)<n.r+4/cam.s)}
-canvas.onpointerdown=e=>{const [x,y]=xy(e);dragging=hit(x,y);if(dragging)select(dragging);last=[e.clientX,e.clientY];canvas.setPointerCapture(e.pointerId)};
-canvas.onpointermove=e=>{const [x,y]=xy(e);
- if(last){if(dragging){dragging.x=x;dragging.y=y;dragging.vx=dragging.vy=0}else{cam.x+=(e.clientX-last[0])/cam.s;cam.y+=(e.clientY-last[1])/cam.s}last=[e.clientX,e.clientY]}
- else hovered=hit(x,y);request()};
-canvas.onpointerleave=()=>{hovered=null;request()};canvas.onpointerup=canvas.onpointercancel=()=>{dragging=null;last=null};
-function zoom(f){cam.s=Math.max(.16,Math.min(4,cam.s*f));request()}
-canvas.addEventListener('wheel',e=>{e.preventDefault();zoom(e.deltaY<0?1.12:.89)},{passive:false});
-canvas.onkeydown=e=>{
- if(e.key==='Escape')select(null);
- else if(['+','=','-'].includes(e.key))zoom(e.key==='-'?.89:1.12);
- else if(e.key.startsWith('Arrow')){const d=22/cam.s;if(e.key==='ArrowLeft')cam.x+=d;if(e.key==='ArrowRight')cam.x-=d;if(e.key==='ArrowUp')cam.y+=d;if(e.key==='ArrowDown')cam.y-=d;request()}
- else return;e.preventDefault();
-};
-canvas.ondblclick=()=>select(null);
-function motionButtons(){$('pauseBtn').textContent=running?'暂停布局':'继续布局';$('pauseBtn').setAttribute('aria-pressed',String(!running));$('pulseBtn').setAttribute('aria-pressed',String(pulses));request()}
-$('pulseBtn').onclick=()=>{pulses=!pulses;motionButtons()};
-$('pauseBtn').onclick=()=>{running=!running;if(running)alphaSim=Math.max(.18,alphaSim);else pulses=false;motionButtons()};
-$('reheatBtn').onclick=()=>{nodes.forEach((n,i)=>{n.vx=Math.cos(i)*5;n.vy=Math.sin(i)*5});alphaSim=1;running=true;motionButtons()};
-$('resetBtn').onclick=()=>{search.value='';options();select(null);fit()};
-motion.addEventListener('change',()=>{if(motion.matches){pulses=false;running=false;motionButtons()}});
-function stepPhysics() {
-  if (!running || alphaSim < 0.008) return;
-  const repulse = RAW.focus_mode ? 2400 : 1250;
-  const springK = RAW.focus_mode ? 0.032 : 0.022;
-  const targetLen = RAW.focus_mode ? 98 : 68;
-  const gravity = 0.012;
-
-  for (let i = 0; i < nodes.length; i++) {
-    const a = nodes[i];
-    if (hiddenLabels.has(a.label)) continue;
-    // Center gravity
-    a.vx -= a.x * gravity * alphaSim;
-    a.vy -= a.y * gravity * alphaSim;
-    for (let j = i + 1; j < nodes.length; j++) {
-      const b = nodes[j];
-      if (hiddenLabels.has(b.label)) continue;
-      let dx = a.x - b.x, dy = a.y - b.y;
-      let d2 = dx * dx + dy * dy + 25;
-      if (d2 > 68000) continue;
-      const f = (repulse / d2) * alphaSim;
-      const inv = 1 / Math.sqrt(d2);
-      const fx = dx * inv * f, fy = dy * inv * f;
-      a.vx += fx; a.vy += fy;
-      b.vx -= fx; b.vy -= fy;
-    }
-  }
-  for (let i = 0; i < edges.length; i++) {
-    const e = edges[i];
-    if (hiddenLabels.has(e.s.label) || hiddenLabels.has(e.t.label)) continue;
-    const dx = e.t.x - e.s.x, dy = e.t.y - e.s.y;
-    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-    const f = (dist - targetLen) * springK * alphaSim;
-    const fx = (dx / dist) * f, fy = (dy / dist) * f;
-    e.s.vx += fx; e.s.vy += fy;
-    e.t.vx -= fx; e.t.vy -= fy;
-  }
-  for (let i = 0; i < nodes.length; i++) {
-    const n = nodes[i];
-    if (n === dragging) continue;
-    if (n.is_center) { n.x *= 0.85; n.y *= 0.85; n.vx = 0; n.vy = 0; continue; }
-    n.vx *= 0.84; n.vy *= 0.84;
-    n.x += Math.max(-14, Math.min(14, n.vx));
-    n.y += Math.max(-14, Math.min(14, n.vy));
-  }
-  alphaSim *= 0.992;
-}
-
-
-function draw(now){
- frame=0;if(!visible||document.hidden)return;
- stepPhysics();ctx.clearRect(0,0,W,H);ctx.save();ctx.translate(W/2,H/2);ctx.scale(cam.s,cam.s);ctx.translate(cam.x,cam.y);
- const active=selected||hovered,near=new Set(active?[active.id]:[]);
- for(const e of edges){
-  if(hiddenLabels.has(e.s.label)||hiddenLabels.has(e.t.label))continue;
-  const link=active&&(e.s===active||e.t===active);if(link){near.add(e.s.id);near.add(e.t.id)}
-  ctx.lineWidth=(link?1.7:.75)/cam.s;ctx.strokeStyle=link?'#62836d':active?'#e4e9e1':'#b2c2b3';
-  ctx.beginPath();ctx.moveTo(e.s.x,e.s.y);ctx.lineTo(e.t.x,e.t.y);ctx.stroke();
-  if(pulses&&(!active||link)){const t=(now/2700+e.offset)%1;ctx.beginPath();ctx.arc(e.s.x+(e.t.x-e.s.x)*t,e.s.y+(e.t.y-e.s.y)*t,2/cam.s,0,Math.PI*2);ctx.fillStyle='#235a46';ctx.fill()}
-  if(link&&cam.s>1.1){ctx.fillStyle='#476153';ctx.font='10px monospace';ctx.textAlign='center';ctx.fillText(e.type,(e.s.x+e.t.x)/2,(e.s.y+e.t.y)/2-3)}
- }
- const labels=[];
- for(const n of nodes){
-  if(hiddenLabels.has(n.label))continue;const dim=active&&!near.has(n.id);ctx.globalAlpha=dim?.32:1;
-  ctx.beginPath();ctx.arc(n.x,n.y,n.r,0,Math.PI*2);ctx.fillStyle=n.color;ctx.fill();ctx.strokeStyle=n===active?'#182d21':'#fff';ctx.lineWidth=(n===active?2.5:1.1)/cam.s;ctx.stroke();
-  if(!dim&&(n===active||n.is_center||(!active&&n.degree>=10)||cam.s>1.8||(active&&near.has(n.id)&&near.size<12)))labels.push(n);
-  ctx.globalAlpha=1;
- }
- // Give the selected node and hubs first choice of an uncluttered label.
- labels.sort((a,b)=>Number(b===active)-Number(a===active)||Number(b.is_center)-Number(a.is_center)||b.degree-a.degree);
- const areas=[],font=11/cam.s;
- ctx.font='600 '+font+'px sans-serif';ctx.textAlign='center';ctx.lineWidth=3/cam.s;
- for(const n of labels){
-  const half=ctx.measureText(n.short).width/2+3/cam.s,y=n.y+n.r+font;
-  const box={left:n.x-half,right:n.x+half,top:y-font-2/cam.s,bottom:y+3/cam.s};
-  if(areas.some(a=>a.left<box.right&&a.right>box.left&&a.top<box.bottom&&a.bottom>box.top))continue;
-  areas.push(box);ctx.strokeStyle='#fbfcf9';ctx.strokeText(n.short,n.x,y);ctx.fillStyle='#24332b';ctx.fillText(n.short,n.x,y);
- }
- ctx.restore();if((running&&alphaSim>=.008)||pulses)request();
-}
-resize();new ResizeObserver(resize).observe(canvas.parentElement);
-new IntersectionObserver(entries=>{visible=entries[0].isIntersecting;if(visible)request()}).observe(canvas);
-document.addEventListener('visibilitychange',request);options();select(nodes.find(n=>n.is_center)||null);motionButtons();
-'''
+from .ui_graph import _build_graph_payload, render_force_graph_html  # noqa: E402,F401
 
 
 def _esc(value):

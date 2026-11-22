@@ -61,6 +61,13 @@ def parse_query(query, catalog=None):
     query_text = re.sub(r"([一二两三四五六七八九十零]+)年", _year_number, query_text)
     # 两个英文技能之间的半角逗号保留为同一列表，其余视为子句边界。
     query_text = re.sub(r"(?<=[A-Za-z0-9+#]),\s*(?=[A-Za-z.])", "、", query_text)
+    # Only consume an explicit, standalone job heading. Unknown conditions
+    # in the heading or subsequent clauses still go through strict validation.
+    heading = re.match(r"^\s*(?:招聘|招募|岗位[：:]|职位[：:])\s*"
+                       r"(?:初级|中级|高级|资深)?(?:软件开发|软件|后端开发|后端|前端开发|前端|"
+                       r"全栈开发|全栈|数据开发|数据|测试|算法|运维|开发)工程师\s*[，,。：:\n]+", query_text)
+    if heading:
+        query_text = query_text[heading.end():]
     clauses = re.split(r"[，,。\n]+", query_text)
     for clause in filter(str.strip, clauses):
         is_pref = bool(re.search(r"优先|加分|偏好", clause))
@@ -153,7 +160,7 @@ WHERE c:ResumeKG AND c.kg_owner='ism2026hw2_resume_graph'
 OPTIONAL MATCH (rec)-[detail:USED_SKILL|APPLIED_SKILL]->(s:Skill)
 WHERE detail.kg_owner='ism2026hw2_resume_graph' AND detail.evidence_valid=true
 RETURN c.resume_id AS resume_id, type(r) AS relation, properties(r) AS evidence,
-       r.page_num AS page, rec.id AS record_id, collect(DISTINCT s.name) AS applied_skills
+       r.page_num AS page, rec.id AS record_id, rec.name AS record_name, collect(DISTINCT s.name) AS applied_skills
 ORDER BY resume_id, page, record_id
 """
 
@@ -217,7 +224,7 @@ def execute_query(query, driver=None):
                 edge = row["evidence"]
                 if edge.get("evidence_valid") and edge.get("evidence_quote"):
                     info = {k: edge.get(k) for k in ("resume_id", "page_num", "evidence_quote", "evidence_valid", "record_id")}
-                    info.update(relation=row["relation"], applied_skills=sorted(row["applied_skills"]))
+                    info.update(relation=row["relation"], record_name=row["record_name"], applied_skills=sorted(row["applied_skills"]))
                     candidate["record_evidence"].append(info)
                     if row["relation"] == "WORKED_ON":
                         candidate["project_evidence"].append(info)
@@ -283,8 +290,8 @@ def comparison_markdown(report):
         for feature, examples in c.get("threshold_evidence", {}).items():
             for e in examples[:2]:
                 lines.extend(["", f"- {feature}（第 {e['page_num']} 页） “{' '.join(e['evidence_quote'].split())}”"])
-        for e in c["project_evidence"][:2]:
-            lines.extend(["", f"- 项目（第 {e['page_num']} 页） “{' '.join(e['evidence_quote'].split())}”。记录内技能为 {', '.join(e['applied_skills']) or '未检出'}。"])
+        for e in c["project_evidence"]:
+            lines.extend(["", f"- {e['record_name']}（项目，第 {e['page_num']} 页） “{' '.join(e['evidence_quote'].split())}”。记录内技能为 {', '.join(e['applied_skills']) or '未检出'}。"])
         lines.extend(["", recommendation(c)])
     return "\n".join(lines) + "\n"
 
