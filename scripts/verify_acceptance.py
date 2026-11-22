@@ -330,7 +330,7 @@ def check_package():
                     and not n.endswith("ResumesPDF.zip") for n in paths), "压缩包命名或排除项不符")
         require(f"{NAME}/demo_video/" in paths,"缺少视频目录")
         expected_files = set()
-        for start in ("src","app.py","scripts","docs","demo_video","data/sample_pdfs","data/extracted_txt","data/processed",
+        for start in ("src",".streamlit/config.toml","app.py","scripts","docs","demo_video","data/sample_pdfs","data/extracted_txt","data/processed",
                       "README.md","pyproject.toml","requirements.txt","docker-compose.yml",".env.example"):
             root=ROOT/start
             for path in root.rglob("*") if root.is_dir() else [root]:

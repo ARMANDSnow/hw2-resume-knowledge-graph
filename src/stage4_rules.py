@@ -477,6 +477,21 @@ def sync_check(driver=None, candidates=None):
     return report
 
 
+def group_rule_evidence(examples):
+    """Group display rows by original location while keeping the raw edge-level proofs."""
+    quotes = {}
+    for evidence in examples:
+        key = (evidence["resume_id"], evidence["page_num"], evidence.get("record_id"),
+               " ".join(evidence["evidence_quote"].split()))
+        if key not in quotes:
+            quotes[key] = dict(resume_id=key[0], page_num=key[1], record_id=key[2], evidence_quote=key[3], skills=[])
+        skill = evidence.get("target")
+        if (skill and evidence.get("relationship") in {"HAS_SKILL", "USED_SKILL", "APPLIED_SKILL"}
+                and skill not in quotes[key]["skills"]):
+            quotes[key]["skills"].append(skill)
+    return list(quotes.values())
+
+
 def focus_profiles(candidates, model, ids=None):
     directory = PROCESSED / "focus_profiles"
     directory.mkdir(parents=True, exist_ok=True)

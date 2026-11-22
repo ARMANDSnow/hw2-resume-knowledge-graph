@@ -14,7 +14,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 name = sys.argv[1].removesuffix(".zip")
 if not name or name in {".",".."}:
     raise SystemExit("无效文件名")
-roots = ["src","app.py","scripts","docker-compose.yml","pyproject.toml","requirements.txt",
+roots = ["src",".streamlit/config.toml","app.py","scripts","docker-compose.yml","pyproject.toml","requirements.txt",
          "README.md",".env.example","data/sample_pdfs","data/extracted_txt","data/processed","docs","demo_video"]
 with tempfile.NamedTemporaryFile(dir="dist", delete=False) as tmp:
     temporary = Path(tmp.name)
