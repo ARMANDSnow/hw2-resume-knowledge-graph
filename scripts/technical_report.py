@@ -82,7 +82,7 @@ def render(report, *, brief=False):
                   f"严格命中 {m[7]['zero']['strict']} 人，近似候选 {m[7]['zero']['near']} 人。近似列表逐人说明缺少的硬条件。", "",
                   "## 运行结果与材料", "",
                   "文中的得分描述简历所提供的证据，并受训练样本构成和日期可解析程度影响。持续至今的经历按快照月折算，较早撰写的简历可能高估工龄。", "",
-                  "[旧版五阶段操作录像](../demo_video/五阶段演示.mp4) · [完整规则、引文与 Cypher](技术说明文档.md) · [运行方法](../README.md) · [逐项验收](../data/processed/acceptance_report.json)", ""]
+                  "[五阶段高清操作录像](../demo_video/五阶段演示.mp4) · [完整规则、引文与 Cypher](技术说明文档.md) · [运行方法](../README.md) · [逐项验收](../data/processed/acceptance_report.json)", ""]
         return "\n".join(lines)
     lines = ["# " + title + "技术说明", "", *byline,
              "本文件汇总完整的样本统计、双边引文、规则阈值与查询。业务操作流程见[项目说明](项目说明.md)。", ""]
@@ -187,5 +187,5 @@ def render(report, *, brief=False):
             "这组分位阈值描述固定训练队列，未使用录用结果标签，也未测量实际岗位表现。","",
             "[机器可读验收结果](../data/processed/acceptance_report.json) · [规则元数据与原文样例](../data/processed/rules_model.json) · [同步实验快照](../data/processed/sync_check_report.json)",""]
     if (PROCESSED.parents[1]/"demo_video/五阶段演示.mp4").is_file():
-        lines += ["[旧版五阶段界面实录（MP4）](../demo_video/五阶段演示.mp4)",""]
+        lines += ["[五阶段高清界面实录（MP4）](../demo_video/五阶段演示.mp4)",""]
     return "\n".join(lines)

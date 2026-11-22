@@ -2,7 +2,7 @@
 
 丁宇轩（524031910745）独立完成，贡献比例 100%。本项目把原始英文简历逐页转为带引文的 Neo4j 知识图谱，用训练集标定四维规则，再在独立测试集进行中文岗位查询。
 
-[项目说明](docs/项目说明.md) · [技术说明与实测数据](docs/技术说明文档.md) · [逐项验收 JSON](data/processed/acceptance_report.json) · [12 份试点](data/processed/pilot_audit.md) · [三人对比](data/processed/query_reports/comparison.md) · [旧版五阶段演示视频](demo_video/五阶段演示.mp4)
+[项目说明](docs/项目说明.md) · [技术说明与实测数据](docs/技术说明文档.md) · [逐项验收 JSON](data/processed/acceptance_report.json) · [12 份试点](data/processed/pilot_audit.md) · [三人对比](data/processed/query_reports/comparison.md) · [五阶段高清演示视频](demo_video/五阶段演示.mp4)
 
 ## 用提交包复核
 
@@ -76,7 +76,7 @@ RETURN p LIMIT 30
 - data/sample_pdfs/、data/extracted_txt/ 保存 60/20 固定 PDF、文本与页边界。先在整个归档做双哈希去重，再在符合采样条件的简历中按连续五词集合相似度排除近重复版本。
 - data/processed/ 保存模型窗口缓存、原始/规范图谱、试点核对记录、16 条规则、同步实验、重点画像及查询结果。
 - docs/技术说明文档.md 由实际运行数据生成。scripts/verify_acceptance.py 自检，scripts/technical_report.py 渲染说明书。
-- demo_video/五阶段演示.mp4 保留旧版界面的操作录屏。新版录屏由项目作者补录，替换后可重新打包。
+- demo_video/五阶段演示.mp4 为新版界面的高清操作录屏（2560 × 1440，1 分 43 秒），含中文字幕和章节。
 
 ```bash
 bash scripts/package_submission.sh
