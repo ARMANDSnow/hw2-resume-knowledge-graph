@@ -51,7 +51,9 @@ docker compose up -d
 .venv/bin/streamlit run app.py --server.address 127.0.0.1 --server.port 8501
 ```
 
-打开 [五阶段演示](http://localhost:8501)。从「采」选择简历和页码，然后到「治」看同页记录和技能引文。「存」展示两个同形词义项、共指与防过并反例。「算」查看规则阈值、固定测试候选人的等级变化及三份画像。「用」切换主岗位、极高门槛或自定义中文岗位条件，展开严格命中者 PDF 和近似者缺项。将页面展示的完整 Cypher 复制到 Neo4j Browser 即可独立查询。
+打开[五阶段演示](http://localhost:8501)。侧栏选择的简历联动「采 · 数据采集」和「治 · 记录抽取」。在原文阅读区切换 PDF 页码，在抽取页选择记录并核对同条记录的实体与引文。窄屏可用左上角按钮打开侧栏。
+
+在「存 · 图谱探索」搜索节点，或用节点选择框查看关联关系和原文。切换到「算 · 规则画像」可比较训练快照与候选人评级。在「用 · 岗位检索」切换主查询、零命中示例或自定义需求，查看严格命中、近似候选缺项及三人对比。展开查询详情可复制 Cypher 到 Neo4j Browser 独立复核。
 
 ```cypher
 MATCH p=(c:Candidate:ResumeKG {split:'train'})-[:HAS_EXPERIENCE]->(w:WorkExperience)-[:USED_SKILL]->(s:Skill)
